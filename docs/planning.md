@@ -204,11 +204,12 @@ What **is** new:
 - [x] Read the w1_therm.rst kernel doc (bulk read section)
 - [x] Finish the rest of w1_therm.rst end to end (conv_time, features, resolution, alarms) before designing the API
 - [x] Read w1thermsensor PyPI docs; confirmed no bulk read, sequential multi-sensor pattern
-- [ ] Record the w1thermsensor source check as citable evidence (grep for `therm_bulk_read` across tagged releases, note versions checked)
+- [x] Record the w1thermsensor source check as citable evidence (grep for `therm_bulk_read` across tagged releases, note versions checked)
 - [x] Check w1-therm-api in detail: read its source, confirm what it covers, and specifically check whether it guards against stale bulk reads (source reviewed 9/24; findings in Source 29)
-- [ ] Re-check crates.io/lib.rs one more time before writing code; confirm whether w1_therm_reader appears in the `onewire` keyword listing (Source 18)
+- [x] Re-check crates.io/lib.rs one more time before writing code; confirm whether w1_therm_reader appears in the `onewire` keyword listing (Source 18)
 - [ ] Check `convert_t()` locking in `drivers/w1/slaves/w1_therm.c` on the target kernel: is the bus mutex held during the conversion sleep?
-- [ ] Confirm the current status of the Pi 5/RP1 w1-gpio instability bug on the target kernel version: still present, or already patched?
+- [x] Confirm the current status of the Pi 5/RP1 w1-gpio instability bug on the target kernel version: still present, or already patched?
+  - This project is running on RPI Linux kernel version 6.18.50+rpt-rpi-2712. The bug is fixed in  Kernel 6.6.28+ (and carried forward into newer branches like 6.12.x and 6.18.x) (https://community.hailo.ai/t/raspberry-pi-kernel-compatibility-issue-temporary-fix/15322)
 - [ ] Verify the exact wording of the \~1µs figure in the RP1 datasheet (Source 15) before quoting it anywhere
 - [ ] Review the PR #120 diff (https://github.com/timofurrer/w1thermsensor/pull/120/files) for stale-read handling, therm_bulk_read status checks, missing-sensor handling, and CRC on the bulk path (only needed if running it as a baseline or citing its design)
 - [ ] Before final writeup, recheck whether PR #120 has been merged or released and update claim wording if so
