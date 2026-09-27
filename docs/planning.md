@@ -27,7 +27,7 @@ Objective must be specific, ie:
 What is **not** new, and should not be claimed:
 
 - Consuming the kernel's w1 sysfs interface. w1thermsensor (Python - https://pypi.org/project/w1thermsensor/) does this via `w1_slave`, and w1_therm_reader (Rust - https://github.com/gaetronik/w1_therm_reader) does it (poorly) too.
-- Using `therm_bulk_read`. w1-therm-api (Python) and wb-mqtt-w1 (C++) already use it.
+- Using `therm_bulk_read`. w1-therm-api (Python) and wb-mqtt-w1 (C++) already use it. An unmerged community PR to w1thermsensor also implements it: [https://github.com/timofurrer/w1thermsensor/pull/120](https://github.com/timofurrer/w1thermsensor/pull/120)
 
 What **is** new:
 
@@ -78,7 +78,7 @@ What **is** new:
 - **Source 18:** crates.io "onewire" keyword listing. [https://crates.io/keywords/onewire](https://crates.io/keywords/onewire) Most Rust 1-Wire crates target embedded-hal (bit-banging). **Needs recheck:** w1_therm_reader ranks #7 in #onewire on lib.rs and may appear in this listing too. Don't cite this source as "none consume sysfs."
 - **Source 19:** fuchsnj/one-wire-bus and fuchsnj/ds18b20. [https://github.com/fuchsnj/one-wire-bus](https://github.com/fuchsnj/one-wire-bus) / [https://github.com/fuchsnj/ds18b20](https://github.com/fuchsnj/ds18b20) The prominent Rust 1-Wire crates; confirmed embedded-hal-based, software-timed.
 - **Source 20:** embedded-hal issue #54. [https://github.com/rust-embedded/embedded-hal/issues/54](https://github.com/rust-embedded/embedded-hal/issues/54) Confirms the Rust embedded community frames 1-Wire as a bit-banging problem, not a kernel-consumer problem.
-- **Source 21:** timofurrer/w1thermsensor. [https://github.com/timofurrer/w1thermsensor](https://github.com/timofurrer/w1thermsensor) (PyPI 2.3.0, released Sep 27, 2023) The Python baseline library. **Does** consume sysfs `w1_slave` (that's its whole mechanism). Does **not** use `therm_bulk_read`: multi-sensor usage is a sequential loop of per-sensor `get_temperature()` calls. Also ships `AsyncW1ThermSensor`, which may allow concurrent per-sensor reads (see Working Notes).
+- **Source 21:** timofurrer/w1thermsensor. [https://github.com/timofurrer/w1thermsensor](https://github.com/timofurrer/w1thermsensor) (PyPI 2.3.0, released Sep 27, 2023) The Python baseline library. **Does** consume sysfs `w1_slave` (that's its whole mechanism). No released version (through 2.3.0, Sep 2023) uses `therm_bulk_read`; multi-sensor usage in released versions is a sequential loop of per-sensor `get_temperature()` calls. An unmerged community PR adds a synchronous bulk-read method (see Source 31). Also ships `AsyncW1ThermSensor`, which may allow concurrent per-sensor reads (see Working Notes).
 - **Source 25 (NEW):** gaetronik/w1_therm_reader. [https://github.com/gaetronik/w1_therm_reader](https://github.com/gaetronik/w1_therm_reader) / [https://docs.rs/w1_therm_reader](https://docs.rs/w1_therm_reader) The only Rust crate found that consumes w1_therm sysfs. v0.1.0 (Sep 1, 2019), \~99 lines, 0 stars, unchanged since release. Weaknesses confirmed from source:
   - Parser calls `temp.parse().unwrap()`, so a malformed `t=` line panics despite the `io::Result` return type.
   - CRC "validation" only checks the kernel's `crc=YES` string; no independent CRC-8 recompute.
@@ -95,6 +95,7 @@ What **is** new:
 - **Source 28:** Linux kernel sysfs ABI doc, `sysfs-driver-w1_therm`. [https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-driver-w1_therm](https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-driver-w1_therm) States that if a sensor isn't read immediately after a bulk trigger, its next read returns the value from bulk-trigger time, not the current temperature. **This is the core motivation for the stale-read-safe API.**
 - **Source 29:** w1-therm-api (PyPI). [https://pypi.org/project/w1-therm-api/](https://pypi.org/project/w1-therm-api/) Python prior art that **does** implement bulk read: `convert()` writes `trigger` to each master's `therm_bulk_read`, polls until ready, then reads each sensor's `temperature`. Docs don't mention stale-read protection; verify in source.
 - **Source 30:** wirenboard/wb-mqtt-w1. [https://github.com/wirenboard/wb-mqtt-w1](https://github.com/wirenboard/wb-mqtt-w1) C++ daemon prior art. Detects `therm_bulk_read` per bus master and runs a bulk read when supported. Application, not a reusable library.
+- **Source 31 (NEW):** w1thermsensor PR #120, "Add bulk read temperature method" (SimonInOps, opened Feb 13, 2025). [https://github.com/timofurrer/w1thermsensor/pull/120](https://github.com/timofurrer/w1thermsensor/pull/120) Status: open, unmerged, awaiting maintainer review (maintainer noted he has no sensors to test with). Solves issue #115, where multiple users requested bulk read. Author reports 5 DS18B20 sensors at 12-bit going from ~4.02 s (`get_temperature()` loop) to ~0.90 s (bulk read). A user confirmed in Feb 2026 that 7 sensors dropped from ~4.8 s to ~0.8 s. Useful as independent evidence of the Regime 2 effect size and of user demand. Informal (unreviewed PR comments), so cite as supporting evidence, not as a measured result.
 
 ### Supporting/context sources (not tied to one claim)
 
@@ -121,13 +122,14 @@ What **is** new:
 - Regime 2: many sensors. Expect per-sensor overhead to compound and become visible. Baselines:
   - w1thermsensor, sequential loop (standard usage)
   - w1thermsensor, `AsyncW1ThermSensor` + `asyncio.gather` (concurrent per-sensor reads)
+  - w1thermsensor, bulk via PR #120 branch (installed from the PR head)
   - w1-therm-api, bulk
   - This crate, bulk (native Rust)
   - This crate, bulk (via Python bindings)
 - Regime 3 (optional): non-thermal 1-Wire device (e.g. DS2413) with no conversion delay, isolating pure per-call overhead.
 - Let regimes 2/3 carry the speed claim; don't oversell regime 1.
 - Comparison logic for Regime 2:
-  - w1thermsensor sequential vs. w1-therm-api bulk → isolates the **architecture** effect.
+  - w1thermsensor released (sequential) vs. w1thermsensor PR #120 (bulk) → primary **architecture** comparison; isolates bulk vs. sequential within one codebase. w1-therm-api remains a secondary baseline for the same comparison.
   - w1-therm-api bulk vs. this crate bulk → isolates the **language/bindings** effect.
   - w1thermsensor async vs. bulk → tests whether concurrency alone closes the gap.
 
@@ -140,11 +142,12 @@ What **is** new:
 
 ### Verified: real feature gap, not just a language gap
 
-- Confirmed by reading w1thermsensor's source directly (multiple versions): each sensor read is independent, blocking file I/O; `therm_bulk_read` is never used, so multi-sensor reads pay the full conversion delay serially, per sensor.
+- Confirmed by reading w1thermsensor's source directly (multiple released versions): each sensor read is independent, blocking file I/O; `therm_bulk_read` is never used in a released version, so multi-sensor reads pay the full conversion delay serially, per sensor. Source check should cite the specific version tags checked.
 - Confirmed from w1thermsensor README (PyPI 2.3.0): the documented multi-sensor pattern is a sequential loop. Note the README alone only shows absence from the docs; cite the source check as the real evidence.
 - CRC checking is implemented correctly in w1thermsensor. The gap is specifically the missing bulk-trigger optimization, not general carelessness.
 - **Correction (9/23):** w1thermsensor *does* consume sysfs `w1_slave`. Sysfs consumption is not the contribution; bulk conversion + stale-read safety + Rust + bindings is.
 - **Correction (9/23):** Bulk read is not unique to this project. w1-therm-api (Python) and wb-mqtt-w1 (C++) both use it. Don't claim "first to use bulk read."
+- **Correction (9/23):** w1thermsensor bulk read exists as unmerged PR #120 ([https://github.com/timofurrer/w1thermsensor/pull/120](https://github.com/timofurrer/w1thermsensor/pull/120)). The claim must be scoped to released versions and must cite the PR.
 
 ### Open risk: concurrency may shrink the bulk-read advantage
 
@@ -157,7 +160,7 @@ What **is** new:
 ### Research
 
 - [x] Read the w1_therm.rst kernel doc (bulk read section)
-- [ ] Finish the rest of w1_therm.rst end to end (conv_time, features, resolution, alarms) before designing the API
+- [x] Finish the rest of w1_therm.rst end to end (conv_time, features, resolution, alarms) before designing the API
 - [x] Read w1thermsensor PyPI docs; confirmed no bulk read, sequential multi-sensor pattern
 - [ ] Record the w1thermsensor source check as citable evidence (grep for `therm_bulk_read` across tagged releases, note versions checked)
 - [ ] Check w1-therm-api in detail: read its source, confirm what it covers, and specifically check whether it guards against stale bulk reads
@@ -165,6 +168,9 @@ What **is** new:
 - [ ] Check `convert_t()` locking in `drivers/w1/slaves/w1_therm.c` on the target kernel: is the bus mutex held during the conversion sleep?
 - [ ] Confirm the current status of the Pi 5/RP1 w1-gpio instability bug on the target kernel version: still present, or already patched?
 - [ ] Verify the exact wording of the \~1µs figure in the RP1 datasheet (Source 15) before quoting it anywhere
+- [ ] Review the PR #120 diff ([https://github.com/timofurrer/w1thermsensor/pull/120/files](https://github.com/timofurrer/w1thermsensor/pull/120/files)): does it read every sensor immediately after triggering, and does it guard against stale reads?
+- [ ] Same diff: does it check `therm_bulk_read` status, handle a sensor disappearing mid-read, and validate CRC on the bulk path?
+- [ ] Record the PR's commit hash when installing it as a benchmark baseline
 - **Priority literature to read before starting development**:
   - [ ] Source 5 (PyO3/Rust bindings overhead study): centerpiece for the speedup claim
   - [ ] Sources 8 & 9 (PREEMPT_RT / userspace-vs-kernel GPIO latency studies): backbone of the bit-banging reliability argument
@@ -189,7 +195,7 @@ What **is** new:
 ### Benchmarking methodology *(define before writing the crate)*
 
 - [ ] Regime 1: single sensor, normal polling
-- [ ] Regime 2: many sensors; baselines = w1thermsensor sequential, w1thermsensor async/concurrent, w1-therm-api bulk, this crate (Rust), this crate (Python bindings)
+- [ ] Regime 2: many sensors; baselines = w1thermsensor sequential, w1thermsensor async/concurrent, w1thermsensor bulk via PR #120 branch, w1-therm-api bulk, this crate (Rust), this crate (Python bindings)
 - [ ] Regime 3 (optional): non-thermal device, no conversion delay
 - [ ] Metrics: wall-clock time, CPU usage, reliability/error-rate count
 - [ ] Fix sensor count levels in advance (e.g. 1, 5, 10, 20) so compounding is visible on a chart
@@ -214,3 +220,4 @@ What **is** new:
 
 - **9/16/2026:** Initial notes, claims 1–5, to-do list.
 - **9/23/2026:** Revised Claim 5 (w1_therm_reader found; "none consume sysfs" was false). Added Claim 6 and Sources 25–30. Corrected w1thermsensor description (consumes sysfs, no bulk read, has async interface). Added contribution statement, concurrency risk, w1-therm-api and async baselines to Regime 2, new research/design to-dos. Marked kernel bulk-read doc and w1thermsensor PyPI review as done.
+- **9/23/2026:** Added Source 31 (w1thermsensor PR #120, unmerged bulk-read method). Scoped the "w1thermsensor has no bulk read" claim to released versions and cited the PR in Claim 5/Source 21 and the contribution statement. Made w1thermsensor released-vs-PR #120 the primary Regime 2 architecture comparison, with w1-therm-api as secondary; added the PR #120 branch as a Regime 2 baseline. Added research to-dos to review the PR #120 diff for stale-read/CRC handling and to record its commit hash when used as a benchmark baseline.
