@@ -29,3 +29,9 @@ target
 #related to benchmarks
 
 /benchmarks/venv/*
+
+#schematics
+
+*-backups/
+fp-info-cache
+*.kicad_prl
