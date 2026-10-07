@@ -34,4 +34,7 @@ target
 
 *-backups/
 fp-info-cache
-*.kicad_prlhardware/rs1wire-sensor-bus/export/~rs1wire-sensor-bus.kicad_sch.lck
+*.kicad_prl
+*.lck
+# KiCad local history (nested git repo)
+.history/
