@@ -143,6 +143,7 @@ What **is** new:
   - w1thermsensor, sequential loop (standard usage)
   - w1thermsensor, `AsyncW1ThermSensor` + `asyncio.gather` (concurrent per-sensor reads)
   - w1thermsensor, bulk via PR #120 branch (installed from the PR head)
+  - w1-therm-api, sequential (`read_temperatures()` without a trigger; separates the library effect from the bulk effect)
   - w1-therm-api, bulk
   - This crate, bulk (native Rust)
   - This crate, bulk (via Python bindings)
@@ -160,7 +161,9 @@ What **is** new:
 
 ### Harness rules
 
-- w1-therm-api bulk baseline must call `convert()` then `read_temperatures()`. `read_temperatures()` alone benchmarks the sequential path and invalidates the comparison.
+- w1-therm-api bulk baseline must call `convert()`, or its two halves `start_conversion()` + `wait_for_conversion()` (which is all `convert()` does), then `read_temperatures()`. The harness uses the two halves so trigger and wait can be timed separately. `read_temperatures()` alone benchmarks the sequential path and invalidates the bulk comparison. It is run deliberately as a separate "w1-therm-api sequential" method.
+- A bulk trigger converts every sensor on the master. Sensors not read afterwards keep a pending result that the kernel returns on the next read without converting. Because methods run interleaved, the harness drains every unread sensor after each bulk run (untimed) and checks `therm_bulk_read` before every run. A failed check is recorded as `BulkPendingAfterDrain` or `BulkPendingBeforeRun` in `error_types`.
+- Each trial runs every (method, N) cell in a seeded random order. Rows are written sorted by method, then N, and `run_order` records the order they actually ran in.
 - Use `unit="C"` for w1-therm-api so outputs match the other libraries.
 - Time the trigger, wait, and readout phases separately where the library allows it.
 - Log which read path was used and count None/error results, so fallback-induced outliers can be explained.
@@ -268,3 +271,4 @@ What **is** new:
 - **9/16/2026:** Initial notes, claims 1–5, to-do list.
 - **9/23/2026:** Revised Claim 5 (w1_therm_reader found; "none consume sysfs" was false). Added Claim 6 and Sources 25–30. Corrected w1thermsensor description (consumes sysfs, no bulk read, has async interface). Added contribution statement, concurrency risk, w1-therm-api and async baselines to Regime 2, new research/design to-dos. Marked kernel bulk-read doc and w1thermsensor PyPI review as done.
 - **9/24/2026:** Adopted docs/project-definition.md as authoritative. Renamed to rs1wire. Scoped w1thermsensor claim to released versions and added Source 31 (PR #120). Recorded w1-therm-api source review in Source 29. Restructured benchmark plan into required (w1thermsensor 2.3.0, w1-therm-api) and optional (async, PR #120) baselines, sensor counts 1 to 10, two distributions, and harness rules. Marked configuration as beyond minimum scope and Python bindings as stretch. Added correctness evaluation, 85 °C decision, and new research/design to-dos.
+- **10/16/2026:** benchmarks/timing.py now runs w1thermsensor sequential, w1-therm-api sequential and w1-therm-api bulk in every trial (shuffled cells, `run_order` column). Bulk is timed as `start_conversion()` + `wait_for_conversion()` instead of `convert()` so the trigger and wait phases are separate. Added the post-bulk drain rule and w1-therm-api sequential as a Regime 2 baseline.
