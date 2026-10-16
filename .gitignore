@@ -38,3 +38,16 @@ fp-info-cache
 *.lck
 # KiCad local history (nested git repo)
 .history/
+
+# Paper
+*.aux 
+*.bbl 
+*.blg 
+*.log 
+*.out 
+*.synctex.gz
+LaTex/IEEEtran_bst_HOWTO.pdf
+LaTex/IEEEtran_HOWTO.pdf
+.DS_Store
+LaTex/rs1wire.fdb_latexmk
+LaTex/rs1wire.fls
