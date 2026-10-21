@@ -51,3 +51,4 @@ LaTex/IEEEtran_HOWTO.pdf
 .DS_Store
 LaTex/rs1wire.fdb_latexmk
 LaTex/rs1wire.fls
+/benchmarks/logs/
