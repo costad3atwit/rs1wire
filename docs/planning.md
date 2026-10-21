@@ -169,6 +169,7 @@ What **is** new:
 - Log which read path was used and count None/error results, so fallback-induced outliers can be explained.
 - CPU usage includes w1-therm-api's 5 ms polling loop; note this when comparing CPU numbers, and document how this crate waits.
 - Record kernel version, OS/distribution version, Python version, library versions, sensor count, and resolution with every result.
+- The rs1wire harness (`benchmarks/timing.rs`, run as `cargo build --release --example timing`) appends to the same `timings.csv` with the same columns. Its bulk `trigger_s` includes the whole conversion and `wait_s` is empty, since the kernel's trigger write is synchronous. It runs as a separate process from `timing.py`, so Rust and Python cells are not interleaved in one shuffle; run the two back to back and note the order.
 
 ### Advantage over existing bit-banging Rust crates
 
@@ -282,3 +283,4 @@ What **is** new:
 - **10/16/2026:** benchmarks/timing.py now runs w1thermsensor sequential, w1-therm-api sequential and w1-therm-api bulk in every trial (shuffled cells, `run_order` column). Bulk is timed as `start_conversion()` + `wait_for_conversion()` instead of `convert()` so the trigger and wait phases are separate. Added the post-bulk drain rule and w1-therm-api sequential as a Regime 2 baseline.
 - **10/21/2026:** Decided CRC (recompute + cross-check kernel flag; bulk path relies on kernel CRC) and 85 °C (error by default, opt-in accept). Laid out error taxonomy and core types in src/lib.rs; added thiserror. Bulk freshness window (`max_age`) is crate-enforced, since the kernel has no expiry.
 - **10/21/2026 (later):** Implemented sysfs I/O: discovery, individual reads, stale-safe bulk reads, resolution/conv_time configuration, fixture tests and `examples/smoke.rs`. From reading w1_therm.c (rpi-6.18.y): the `trigger` write is synchronous, read failures are empty reads, and the bus mutex is held during the conversion sleep without strong pull-up. Bulk results are read through `w1_slave` so CRC is recomputed on every path. Added the harness phase-labeling to-do.
+- **10/21/2026 (harness):** Added `os_id` / `os_version` (os-release ID / VERSION_ID) and `rustc` columns to the shared CSV schema for the distribution comparison. Added the rs1wire harness `benchmarks/timing.rs` (methods `rs1wire-seq`, `rs1wire-bulk`), same columns, same drain and search-disable rules as timing.py.

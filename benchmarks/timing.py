@@ -29,6 +29,9 @@ cycles can't hold the bus mutex mid-trial. The original setting is restored
 on exit. Writing w1_master_search needs root; the script uses `sudo -n tee`
 for that one write, so the rest of the script runs unprivileged in the venv.
 
+The rs1wire methods are timed by timing.rs (see its header), which appends
+to the same timings.csv with the same columns.
+
 Usage:
     python timing.py                       # 30 trials at counts 1, 2, 5, 10
     python timing.py --trials 3            # quick smoke test
@@ -67,9 +70,10 @@ METHODS = {
     "w1-therm-api-bulk": ("w1-therm-api", "bulk", "temperature"),
 }
 
-# Shared schema: the rs1wire harness should write the same columns so all
-# results can live in one file. Columns that don't apply to a method are
-# left empty (e.g. the phase timings for sequential reads).
+# Shared schema: the rs1wire harness (timing.rs) writes the same columns so
+# all results live in one file. Keep the two lists identical. Columns that
+# don't apply to a method are left empty (e.g. the phase timings for
+# sequential reads, rustc for Python rows).
 FIELDS = [
     "run_id", "timestamp_utc", "library", "library_version", "library_source",
     "method", "read_path", "sensor_count", "bus_sensor_count", "trial",
@@ -78,7 +82,7 @@ FIELDS = [
     "cpu_total_s", "cpu_user_s", "cpu_sys_s",
     "reads_ok", "reads_failed", "error_types",
     "resolution_bits", "conv_time_ms", "w1_master_search",
-    "kernel", "os", "python", "hostname",
+    "kernel", "os", "os_id", "os_version", "python", "rustc", "hostname",
 ]
 
 
@@ -126,14 +130,18 @@ def library_meta(name):
 
 
 def common_env():
-    """Metadata recorded with every row, per the harness rules."""
+    """Metadata recorded with every row, per the harness rules. os_id and
+    os_version come from os-release ID and VERSION_ID (e.g. debian / 12), so
+    distributions can be grouped without parsing PRETTY_NAME."""
     try:
-        os_name = platform.freedesktop_os_release().get("PRETTY_NAME", "unknown")
+        release = platform.freedesktop_os_release()
     except OSError:
-        os_name = "unknown"
+        release = {}
     return {
         "kernel": platform.release(),
-        "os": os_name,
+        "os": release.get("PRETTY_NAME", "unknown"),
+        "os_id": release.get("ID", "unknown"),
+        "os_version": release.get("VERSION_ID", "unknown"),
         "python": platform.python_version(),
         "hostname": socket.gethostname(),
     }
@@ -372,7 +380,8 @@ def main():
         for n in counts
     }
 
-    print(f"run {run_id}: kernel {env['kernel']}, {env['os']}")
+    print(f"run {run_id}: kernel {env['kernel']}, {env['os']} "
+          f"({env['os_id']} {env['os_version']})")
     for meta in libs.values():
         print(f"  {meta['library']} {meta['library_version']} ({meta['library_source']})")
     print(f"methods: {', '.join(methods)}")

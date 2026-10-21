@@ -7,4 +7,10 @@ edition = "2024"
 thiserror = "2"
 
 [dev-dependencies]
+libc = "0.2"
 tempfile = "3"
+
+# Lives next to timing.py and writes to the same timings.csv.
+[[example]]
+name = "timing"
+path = "benchmarks/timing.rs"
