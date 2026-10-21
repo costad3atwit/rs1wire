@@ -260,11 +260,12 @@ fn run_cell(bus: &mut BusMaster, sensors: &[Sensor], label: &str, n: usize) -> R
         usage = meter.stop();
     } else {
         let t0 = Instant::now();
-        let conversion = bus.bulk_convert(BulkOptions::default());
-        let t1 = Instant::now();
-        phases.push(("trigger_s", secs(t1 - t0)));
-        match conversion {
+        // Matched directly (not bound first), so the conversion's borrow of
+        // `bus` ends with the match and the drain check below can use it.
+        match bus.bulk_convert(BulkOptions::default()) {
             Ok(mut conversion) => {
+                let t1 = Instant::now();
+                phases.push(("trigger_s", secs(t1 - t0)));
                 for sensor in sensors {
                     match conversion.read(&sensor.id()) {
                         Ok(_) => ok += 1,
@@ -277,6 +278,7 @@ fn run_cell(bus: &mut BusMaster, sensors: &[Sensor], label: &str, n: usize) -> R
                 drop(conversion);
             }
             Err(e) => {
+                phases.push(("trigger_s", secs(t0.elapsed())));
                 usage = meter.stop();
                 errors.extend(std::iter::repeat_n(error_name(&e), n));
             }
