@@ -1,0 +1,9 @@
+# Lets the gpio group write therm_bulk_read, which the bulk benchmark methods
+# (w1-therm-api and rs1wire) write "trigger" to. The kernel creates it 0644,
+# root only, on the bus master when the first w1_therm sensor attaches, so
+# this fires on DS18B20 (28-*) add and fixes the file in the parent directory.
+#
+# Install on the Pi:
+#   sudo cp benchmarks/90-rs1wire-bench.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger --action=add --subsystem-match=w1
+ACTION=="add", SUBSYSTEM=="w1", KERNEL=="28-*", RUN+="/bin/sh -c 'f=/sys%p/../therm_bulk_read; chgrp gpio $f && chmod g+w $f'"
