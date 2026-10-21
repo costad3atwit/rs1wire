@@ -14,6 +14,8 @@
 # Environment:
 #     TRIALS       recorded trials per block (default 15)
 #     ORDER        blocks to run, "py" and/or "rs" (default "py rs rs py")
+#     VENV         Python venv with w1thermsensor and w1-therm-api (default
+#                  benchmarks/venv)
 #     NO_PULL=1    skip `git pull --ff-only`
 #     ALLOW_DIRTY=1  run even with uncommitted changes to the crate or harnesses
 #
@@ -27,7 +29,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TRIALS="${TRIALS:-15}"
 ORDER="${ORDER:-py rs rs py}"
-PY=benchmarks/venv/bin/python
+VENV="${VENV:-benchmarks/venv}"
 RS=target/release/examples/timing
 
 mkdir -p benchmarks/logs
@@ -55,7 +57,16 @@ $dirty
 Commit them, or set ALLOW_DIRTY=1."
 fi
 
-[[ -x $PY ]] || die "$PY not found. Create the venv in benchmarks/venv first."
+[[ -f $VENV/bin/activate ]] || die "no venv at $VENV. Create it, or set VENV=path/to/venv."
+# activate references unset variables on some Python versions.
+set +u
+# shellcheck disable=SC1091
+source "$VENV/bin/activate"
+set -u
+python -c 'import w1_therm_api, w1thermsensor' 2>/dev/null || die "$(command -v python) can't import
+w1_therm_api and w1thermsensor. Install them into $VENV
+($VENV/bin/pip install w1thermsensor==2.3.0 w1-therm-api), or point VENV at the venv that has them."
+echo "python: $(command -v python) ($(python --version 2>&1))"
 
 # Only bus masters with DS18B20s matter; the DS2413 bus is never triggered.
 found_bus=
@@ -88,7 +99,7 @@ echo "commit: $(git rev-parse --short=12 HEAD)"
 for block in $ORDER; do
     echo "=== $block: $(date -u +%H:%M:%SZ) ==="
     if [[ $block == py ]]; then
-        "$PY" benchmarks/timing.py --trials "$TRIALS" "$@"
+        python benchmarks/timing.py --trials "$TRIALS" "$@"
     else
         "$RS" --trials "$TRIALS" "$@"
     fi
