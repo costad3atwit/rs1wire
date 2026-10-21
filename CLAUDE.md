@@ -32,8 +32,8 @@ Python bindings are a stretch goal, not part of the minimum scope.
 - **Never panic on device or sysfs input.** Malformed `w1_slave` or `temperature` content returns an error. No `unwrap()`/`expect()` on parsed data outside tests.
 - **Stale-read safety.** After a `therm_bulk_read` trigger, the kernel returns the value from trigger time if a sensor isn't read promptly. The bulk-read API must make stale access impossible or an explicit error (e.g. a result/handle type consumed by reading, tied to one trigger). Tests must show that an expired conversion and a double read from one conversion are both rejected.
 - **Error taxonomy** (keep these distinct): kernel module not loaded, device not found, CRC mismatch, conversion in progress, stale bulk-read access, parse failure, 85 °C power-on reset value.
-- **CRC:** decision pending between recomputing CRC-8 from the 9 raw scratchpad bytes and only checking the kernel's `crc=YES/NO`. Docs must describe whichever is chosen accurately.
-- **85 °C handling:** decision pending on whether `t=85000` is always treated as the power-on reset value, since that discards genuine 85 °C readings. Document whichever is chosen.
+- **CRC:** `w1_slave` reads recompute CRC-8 from the 9 raw scratchpad bytes and cross-check it against the kernel's `crc=YES/NO`; either failing or the two disagreeing is `CrcMismatch`. The bulk path reads `temperature`, which has no raw bytes, so it relies on the kernel's CRC check (surfaces as an I/O error). Docs must say this.
+- **85 °C handling:** `t=85000` is `PowerOnReset` by default (`PowerOnResetPolicy::Reject`); callers can opt in with `PowerOnResetPolicy::Accept`. Docs must state that the default discards genuine 85 °C readings.
 - **Testability:** the sysfs root path must be configurable so tests run against fixture directories, not real hardware.
 - **Python bindings:** release the GIL (`py.allow_threads`) around every blocking file read and conversion wait.
 

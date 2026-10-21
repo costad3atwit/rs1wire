@@ -235,9 +235,12 @@ What **is** new:
 ### Design
 
 - [ ] Sketch public API: discovery, single-read, and a distinct bulk-read type that can't yield stale data by construction
-- [ ] Decide error taxonomy: kernel module not loaded, device not found, CRC mismatch, conversion in progress, stale bulk-read access, parse failure (never panic on malformed input), 85 °C power-on reset value
-- [ ] Decide CRC approach: recompute CRC-8 from the 9 raw scratchpad bytes, or only check the kernel's `crc=YES/NO`. Describe the feature accurately either way
-- [ ] Decide how to handle 85000 (85 °C): treating it as the power-on value discards genuine readings; choose deliberately and document it
+- [x] Decide error taxonomy: kernel module not loaded, device not found, CRC mismatch, conversion in progress, stale bulk-read access, parse failure (never panic on malformed input), 85 °C power-on reset value
+  - Done 10/21: `rs1wire::Error` in src/lib.rs, plus `BusNotFound`, `BulkReadUnsupported` and `Io`.
+- [x] Decide CRC approach: recompute CRC-8 from the 9 raw scratchpad bytes, or only check the kernel's `crc=YES/NO`. Describe the feature accurately either way
+  - Recompute and cross-check against `crc=` on `w1_slave` reads. The bulk path (`temperature` file) relies on the kernel's check.
+- [x] Decide how to handle 85000 (85 °C): treating it as the power-on value discards genuine readings; choose deliberately and document it
+  - Error by default (`PowerOnResetPolicy::Reject`), opt-in `Accept`.
 - [ ] Design stale-read tests alongside the bulk-read API (expired conversion, double read from one conversion)
 - [ ] Decide PyO3 boundary and where `py.allow_threads` is required
 
@@ -272,3 +275,4 @@ What **is** new:
 - **9/23/2026:** Revised Claim 5 (w1_therm_reader found; "none consume sysfs" was false). Added Claim 6 and Sources 25–30. Corrected w1thermsensor description (consumes sysfs, no bulk read, has async interface). Added contribution statement, concurrency risk, w1-therm-api and async baselines to Regime 2, new research/design to-dos. Marked kernel bulk-read doc and w1thermsensor PyPI review as done.
 - **9/24/2026:** Adopted docs/project-definition.md as authoritative. Renamed to rs1wire. Scoped w1thermsensor claim to released versions and added Source 31 (PR #120). Recorded w1-therm-api source review in Source 29. Restructured benchmark plan into required (w1thermsensor 2.3.0, w1-therm-api) and optional (async, PR #120) baselines, sensor counts 1 to 10, two distributions, and harness rules. Marked configuration as beyond minimum scope and Python bindings as stretch. Added correctness evaluation, 85 °C decision, and new research/design to-dos.
 - **10/16/2026:** benchmarks/timing.py now runs w1thermsensor sequential, w1-therm-api sequential and w1-therm-api bulk in every trial (shuffled cells, `run_order` column). Bulk is timed as `start_conversion()` + `wait_for_conversion()` instead of `convert()` so the trigger and wait phases are separate. Added the post-bulk drain rule and w1-therm-api sequential as a Regime 2 baseline.
+- **10/21/2026:** Decided CRC (recompute + cross-check kernel flag; bulk path relies on kernel CRC) and 85 °C (error by default, opt-in accept). Laid out error taxonomy and core types in src/lib.rs; added thiserror. Bulk freshness window (`max_age`) is crate-enforced, since the kernel has no expiry.
