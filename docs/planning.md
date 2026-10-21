@@ -210,13 +210,15 @@ What **is** new:
 - [x] Record the w1thermsensor source check as citable evidence (grep for `therm_bulk_read` across tagged releases, note versions checked)
 - [x] Check w1-therm-api in detail: read its source, confirm what it covers, and specifically check whether it guards against stale bulk reads (source reviewed 9/24; findings in Source 29)
 - [x] Re-check crates.io/lib.rs one more time before writing code; confirm whether w1_therm_reader appears in the `onewire` keyword listing (Source 18)
-- [ ] Check `convert_t()` locking in `drivers/w1/slaves/w1_therm.c` on the target kernel: is the bus mutex held during the conversion sleep?
+- [x] Check `convert_t()` locking in `drivers/w1/slaves/w1_therm.c` on the target kernel: is the bus mutex held during the conversion sleep?
+  - rpi-6.18.y: without strong pull-up (externally powered sensors) the mutex is held through `msleep_interruptible(t_conv)`, so concurrent per-sensor conversions on one bus serialize. With strong pull-up (parasite power) it is released before the sleep. Confirm on hardware by timing w1thermsensor async against sequential.
 - [x] Confirm the current status of the Pi 5/RP1 w1-gpio instability bug on the target kernel version: still present, or already patched?
   - This project is running on RPI Linux kernel version 6.18.50+rpt-rpi-2712. The bug is fixed in  Kernel 6.6.28+ (and carried forward into newer branches like 6.12.x and 6.18.x) (https://community.hailo.ai/t/raspberry-pi-kernel-compatibility-issue-temporary-fix/15322)
 - [ ] Verify the exact wording of the \~1µs figure in the RP1 datasheet (Source 15) before quoting it anywhere
 - [ ] Review the PR #120 diff (https://github.com/timofurrer/w1thermsensor/pull/120/files) for stale-read handling, therm_bulk_read status checks, missing-sensor handling, and CRC on the bulk path (only needed if running it as a baseline or citing its design)
 - [ ] Before final writeup, recheck whether PR #120 has been merged or released and update claim wording if so
-- [ ] Confirm from the kernel ABI/source that a second access after a consumed bulk result starts a fresh conversion (supports the w1-therm-api fallback finding)
+- [x] Confirm from the kernel ABI/source that a second access after a consumed bulk result starts a fresh conversion
+  - Confirmed in rpi-6.18.y source: `w1_slave_show` and `temperature_show` read the scratchpad and clear the flag when it is 1, and call `convert_t()` when it is 0. (supports the w1-therm-api fallback finding)
 - [ ] Pick the second Linux distribution for benchmarking and confirm w1-gpio/w1-therm support on Pi 5
 - **Priority literature to read before starting development**:
   - [ ] Source 5 (PyO3/Rust bindings overhead study): centerpiece for the speedup claim
@@ -234,14 +236,17 @@ What **is** new:
 
 ### Design
 
-- [ ] Sketch public API: discovery, single-read, and a distinct bulk-read type that can't yield stale data by construction
+- [x] Sketch public API: discovery, single-read, and a distinct bulk-read type that can't yield stale data by construction
+  - `W1` / `BusMaster` / `Sensor`; `BusMaster::bulk_convert` returns a `BulkConversion` that hands out each result once within `max_age`, drains unread sensors on drop, and is consumed by `read_all`. Individual reads refuse while the bus has a pending bulk result.
 - [x] Decide error taxonomy: kernel module not loaded, device not found, CRC mismatch, conversion in progress, stale bulk-read access, parse failure (never panic on malformed input), 85 °C power-on reset value
   - Done 10/21: `rs1wire::Error` in src/lib.rs, plus `BusNotFound`, `BulkReadUnsupported` and `Io`.
 - [x] Decide CRC approach: recompute CRC-8 from the 9 raw scratchpad bytes, or only check the kernel's `crc=YES/NO`. Describe the feature accurately either way
   - Recompute and cross-check against `crc=` on `w1_slave` reads. The bulk path (`temperature` file) relies on the kernel's check.
 - [x] Decide how to handle 85000 (85 °C): treating it as the power-on value discards genuine readings; choose deliberately and document it
   - Error by default (`PowerOnResetPolicy::Reject`), opt-in `Accept`.
-- [ ] Design stale-read tests alongside the bulk-read API (expired conversion, double read from one conversion)
+- [x] Design stale-read tests alongside the bulk-read API (expired conversion, double read from one conversion)
+  - Fixture tests in src/lib.rs plus a `compile_fail` doctest for a double `read_all`. Kernel-side consumption is checked on hardware with `examples/smoke.rs`.
+- [ ] Harness: w1-therm-api's `start_conversion()` already includes the full conversion wait, since the kernel's `trigger` write is synchronous, so its "wait" phase is ~0. Relabel the phases or note it with the results
 - [ ] Decide PyO3 boundary and where `py.allow_threads` is required
 
 ### Benchmarking methodology *(define before writing the crate)*
@@ -276,3 +281,4 @@ What **is** new:
 - **9/24/2026:** Adopted docs/project-definition.md as authoritative. Renamed to rs1wire. Scoped w1thermsensor claim to released versions and added Source 31 (PR #120). Recorded w1-therm-api source review in Source 29. Restructured benchmark plan into required (w1thermsensor 2.3.0, w1-therm-api) and optional (async, PR #120) baselines, sensor counts 1 to 10, two distributions, and harness rules. Marked configuration as beyond minimum scope and Python bindings as stretch. Added correctness evaluation, 85 °C decision, and new research/design to-dos.
 - **10/16/2026:** benchmarks/timing.py now runs w1thermsensor sequential, w1-therm-api sequential and w1-therm-api bulk in every trial (shuffled cells, `run_order` column). Bulk is timed as `start_conversion()` + `wait_for_conversion()` instead of `convert()` so the trigger and wait phases are separate. Added the post-bulk drain rule and w1-therm-api sequential as a Regime 2 baseline.
 - **10/21/2026:** Decided CRC (recompute + cross-check kernel flag; bulk path relies on kernel CRC) and 85 °C (error by default, opt-in accept). Laid out error taxonomy and core types in src/lib.rs; added thiserror. Bulk freshness window (`max_age`) is crate-enforced, since the kernel has no expiry.
+- **10/21/2026 (later):** Implemented sysfs I/O: discovery, individual reads, stale-safe bulk reads, resolution/conv_time configuration, fixture tests and `examples/smoke.rs`. From reading w1_therm.c (rpi-6.18.y): the `trigger` write is synchronous, read failures are empty reads, and the bus mutex is held during the conversion sleep without strong pull-up. Bulk results are read through `w1_slave` so CRC is recomputed on every path. Added the harness phase-labeling to-do.

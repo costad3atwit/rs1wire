@@ -32,7 +32,7 @@ Python bindings are a stretch goal, not part of the minimum scope.
 - **Never panic on device or sysfs input.** Malformed `w1_slave` or `temperature` content returns an error. No `unwrap()`/`expect()` on parsed data outside tests.
 - **Stale-read safety.** After a `therm_bulk_read` trigger, the kernel returns the value from trigger time if a sensor isn't read promptly. The bulk-read API must make stale access impossible or an explicit error (e.g. a result/handle type consumed by reading, tied to one trigger). Tests must show that an expired conversion and a double read from one conversion are both rejected.
 - **Error taxonomy** (keep these distinct): kernel module not loaded, device not found, CRC mismatch, conversion in progress, stale bulk-read access, parse failure, 85 °C power-on reset value.
-- **CRC:** `w1_slave` reads recompute CRC-8 from the 9 raw scratchpad bytes and cross-check it against the kernel's `crc=YES/NO`; either failing or the two disagreeing is `CrcMismatch`. The bulk path reads `temperature`, which has no raw bytes, so it relies on the kernel's CRC check (surfaces as an I/O error). Docs must say this.
+- **CRC:** every read, bulk included, goes through `w1_slave`. The crate recomputes CRC-8 from the 9 raw scratchpad bytes and cross-checks it against the kernel's `crc=XX YES/NO`; any disagreement is `CrcMismatch`. When the kernel's own read fails it returns an empty file (not an errno), reported as `ReadFailed`. Docs must say this.
 - **85 °C handling:** `t=85000` is `PowerOnReset` by default (`PowerOnResetPolicy::Reject`); callers can opt in with `PowerOnResetPolicy::Accept`. Docs must state that the default discards genuine 85 °C readings.
 - **Testability:** the sysfs root path must be configurable so tests run against fixture directories, not real hardware.
 - **Python bindings:** release the GIL (`py.allow_threads`) around every blocking file read and conversion wait.
@@ -43,6 +43,10 @@ Python bindings are a stretch goal, not part of the minimum scope.
 - Per-master: `/sys/bus/w1/devices/w1_bus_masterN/therm_bulk_read`
   - write `trigger` to start a conversion on all devices on that bus
   - read: `-1` conversion in progress, `1` complete but some sensors unread, `0` no bulk operation pending
+  - the `trigger` write is synchronous: it sleeps for the longest `conv_time` on the bus and marks results ready before returning, so there is no separate wait phase
+- Reading `w1_slave` or `temperature` on a sensor with a pending bulk result returns that result without converting and clears it; with nothing pending, the read runs a fresh conversion
+- Read failures (CRC, bus error, conversion in progress) come back as a 0-byte read, not an errno
+- Source checked: `drivers/w1/slaves/w1_therm.c` on raspberrypi/linux `rpi-6.18.y`
 - Kernel docs: https://docs.kernel.org/w1/slaves/w1_therm.html and `Documentation/ABI/testing/sysfs-driver-w1_therm`
 
 ## Benchmarking
