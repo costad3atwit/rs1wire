@@ -19,8 +19,9 @@
 #
 # Before recording, the script checks that Cargo.lock is committed and the
 # crate and harness sources are clean (so library_source has no -dirty), that
-# the trigger file is writable (bulk methods need it), and that `sudo -n`
-# works (both harnesses use it to disable bus search).
+# the trigger file is writable (bulk methods need it), and that the user
+# can write w1_master_search, directly or via `sudo -n tee` (both harnesses
+# use it to disable bus search on a full bus).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -55,15 +56,28 @@ Commit them, or set ALLOW_DIRTY=1."
 fi
 
 [[ -x $PY ]] || die "$PY not found. Create the venv in benchmarks/venv first."
-sudo -n true 2>/dev/null || die "passwordless sudo is needed to disable bus search."
 
 # Only bus masters with DS18B20s matter; the DS2413 bus is never triggered.
 found_bus=
 for bus in /sys/bus/w1/devices/w1_bus_master*; do
-    grep -q '^28-' "$bus/w1_master_slaves" 2>/dev/null || continue
+    sensors=$(grep -c '^28-' "$bus/w1_master_slaves" 2>/dev/null || true)
+    (( sensors > 0 )) || continue
     found_bus=1
     [[ -w $bus/therm_bulk_read ]] \
         || die "$bus/therm_bulk_read is not writable by $(whoami); bulk methods would fail."
+
+    # The harnesses disable bus search only with the full bus (10 sensors),
+    # by writing w1_master_search directly or else via `sudo -n tee`.
+    # timing.py writes the resolved /sys/devices path, timing.rs the
+    # /sys/bus/w1/devices one, so sudo must allow both.
+    (( sensors >= 10 )) || continue
+    [[ -w $bus/w1_master_search ]] && continue
+    for f in "$bus/w1_master_search" "$(readlink -f "$bus")/w1_master_search"; do
+        sudo -n -l tee "$f" >/dev/null 2>&1 || die "sudo won't run 'tee $f' without a password.
+The harnesses need it to disable bus search. Allow just that with
+'sudo visudo -f /etc/sudoers.d/rs1wire-bench' and this line:
+$(whoami) ALL=(root) NOPASSWD: /usr/bin/tee /sys/devices/w1_bus_master*/w1_master_search, /usr/bin/tee /sys/bus/w1/devices/w1_bus_master*/w1_master_search"
+    done
 done
 [[ -n $found_bus ]] || die "no bus master with DS18B20s under /sys/bus/w1/devices."
 
