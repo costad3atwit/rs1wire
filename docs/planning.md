@@ -275,6 +275,7 @@ What **is** new:
 - [ ] Related-work must acknowledge w1_therm_reader, w1-therm-api, wb-mqtt-w1, and w1thermsensor PR #120 as prior art, and state precisely what this project adds
 - [ ] Explicitly document the caveats: kernel bit-bang isn't immune to jitter either; RP1 latency figures are primary-source, not academic; PyO3 doesn't eliminate FFI overhead; concurrency may narrow the bulk-read advantage
 - [ ] Note open questions/risks: PCIe-generation inconsistency in Raspberry Pi's own docs (Gen 2 x4 vs Gen 3 claims across their posts), whether the target kernel still has the RP1 w1-gpio bug
+- [ ] Paper: discuss the initial transition in Fig. bulk_states(b), labeled "w1 driver loaded". Explain that the bus status in `therm_bulk_read` only exists once the w1 bus master driver (w1-gpio + w1-therm) is loaded, and that it starts at 0 (Idle) with no pending results. Connect this to setup: the overlay is configured in `/boot/firmware/config.txt` (`dtoverlay=w1-gpio,gpiopin=N`), so the state machine's starting point is a configured, freshly loaded driver. Keep it brief and don't add a new section header (subheadings are OK).
 
 ## Changelog
 
@@ -286,3 +287,4 @@ What **is** new:
 - **10/21/2026 (later):** Implemented sysfs I/O: discovery, individual reads, stale-safe bulk reads, resolution/conv_time configuration, fixture tests and `examples/smoke.rs`. From reading w1_therm.c (rpi-6.18.y): the `trigger` write is synchronous, read failures are empty reads, and the bus mutex is held during the conversion sleep without strong pull-up. Bulk results are read through `w1_slave` so CRC is recomputed on every path. Added the harness phase-labeling to-do.
 - **10/21/2026 (harness):** Added `os_id` / `os_version` (os-release ID / VERSION_ID) and `rustc` columns to the shared CSV schema for the distribution comparison. Added the rs1wire harness `benchmarks/timing.rs` (methods `rs1wire-seq`, `rs1wire-bulk`), same columns, same drain and search-disable rules as timing.py.
 - **10/21/2026 (Pi setup):** Added `benchmarks/run_all.sh` (py/rs/rs/py blocks, pre-run checks) and the udev rule `benchmarks/90-rs1wire-bench.rules` for `therm_bulk_read` write access. `therm_bulk_read` is 0644 root by default, so bulk methods fail unprivileged without it.
+- **11/1/2026:** Split the bulk-read state diagram (paper Fig. bulk_states) into panels: (a) per-sensor states within one `BulkConversion` handle and (b) bus status from `therm_bulk_read`. Panel (b)'s initial transition is now labeled "w1 driver loaded". Added a writeup to-do to explain it.

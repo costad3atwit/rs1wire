@@ -62,13 +62,78 @@
 	doi={10.1142/S0218194022500231}
 }
 
-@misc{ding2026stdlib,
-	title={Stdlib or Third-Party? {Empirical} Performance and Correctness of {LLM}-Assisted Zero-Dependency {Python} Libraries},
-	author={Ding, Peng and Stevens, Rick},
-	year={2026},
-	month=may,
-	howpublished={arXiv preprint arXiv:2605.21405},
-	doi={10.48550/arXiv.2605.21405}
+@article{amaral2025rust,
+  title={{Rust} vs. {C} for {Python} Libraries: Evaluating {Rust}-Compatible Bindings Toolchains},
+  author={Amaral, Isabella Basso do and Ferreira, Renato Cordeiro and Goldman, Alfredo},
+  journal={arXiv preprint arXiv:2507.00264},
+  year={2025}
+}
+
+@article{harding2025improving,
+  title={Improving Runtime Performance of Tensor Computations using {Rust} From {Python}},
+  author={Harding, Kimmie and Dunlavy, Daniel M},
+  journal={arXiv preprint arXiv:2510.01495},
+  year={2025}
+}
+
+@article{adam2021real,
+  title={Real-time performance and response latency measurements of {Linux} kernels on single-board computers},
+  author={Adam, George K},
+  journal={Computers},
+  volume={10},
+  number={5},
+  pages={64},
+  year={2021},
+  publisher={MDPI}
+}
+
+@inproceedings{madden2019challenges,
+  title={Challenges using {Linux} as a real-time operating system},
+  author={Madden, Michael M},
+  booktitle={AIAA Scitech 2019 Forum},
+  pages={0502},
+  year={2019}
+}
+
+@article{zhou2025towards,
+  title={Towards Deterministic Sub-0.5 us Response on {Linux} through Interrupt Isolation},
+  author={Zhou, Zhouyi and Liu, Zhili and Zhang, Shancong and Li, Jiemin and Du, Dengke and Sun, Mengke and Wang, Zhiqiang and Liu, Hongyan and Xu, Guokai},
+  journal={arXiv preprint arXiv:2509.03855},
+  year={2025}
+}
+
+@article{vandervelden2024overview,
+  title={Overview of embedded {Rust} operating systems and frameworks},
+  author={Vandervelden, Thibaut and De Smet, Ruben and Deac, Diana and Steenhaut, Kris and Braeken, An},
+  journal={Sensors},
+  volume={24},
+  number={17},
+  pages={5818},
+  year={2024},
+  publisher={MDPI}
+}
+
+@inproceedings{nanjekye2023towards,
+  title={Towards reliable memory management for {Python} native extensions},
+  author={Nanjekye, Joannah and Bremner, David and Micic, Aleksandar},
+  booktitle={Proceedings of the 18th ACM International Workshop on Implementation, Compilation, Optimization of OO Languages, Programs and Systems},
+  pages={15--26},
+  year={2023}
+}
+
+@inproceedings{de2022canflict,
+  title={{CANflict}: Exploiting peripheral conflicts for data-link layer attacks on automotive networks},
+  author={de Faveri Tron, Alvise and Longari, Stefano and Carminati, Michele and Polino, Mario and Zanero, Stefano},
+  booktitle={Proceedings of the 2022 ACM SIGSAC conference on computer and communications security},
+  pages={711--723},
+  year={2022}
+}
+
+@article{ding2026stdlib,
+  title={Stdlib or Third-Party? Empirical Performance and Correctness of {LLM}-Assisted Zero-Dependency {Python} Libraries},
+  author={Ding, Peng and Stevens, Rick},
+  journal={arXiv preprint arXiv:2605.21405},
+  year={2026}
 }
 
 @misc{Analog_Devices_1w_software,
@@ -78,4 +143,190 @@
 	month={May 30},
 	url={https://www.analog.com/en/resources/technical-articles/1wire-communication-through-software.html},
 	note={Accessed: Oct. 7, 2026}
+}
+
+@misc{ds18b20_datasheet,
+	title={{DS18B20} Digital Thermometer Datasheet},
+	author={{Analog Devices}},
+	year={2019},
+	url={https://www.analog.com/media/en/technical-documentation/data-sheets/DS18B20.pdf},
+	note={Accessed: 10/07/2026}
+}
+
+% Source 27: Linux kernel docs, "Kernel driver w1_therm"
+% https://docs.kernel.org/w1/slaves/w1_therm.html
+@misc{kernel_w1_therm_docs,
+	title={Kernel driver w1\_therm},
+	author={{Linux Kernel Documentation}},
+	year={2023},
+	month={March},
+	url={https://docs.kernel.org/w1/slaves/w1_therm.html},
+	note={Accessed: 10/08/2026}
+}
+
+@misc{kernel_w1_therm_abi,
+	title={Kernel driver w1\_therm},
+	author={Evgeniy Polyakov},
+
+	url={https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-driver-w1_therm},
+	note={Accessed: 09/20/2026}
+}
+
+@misc{upton_rp1,
+	title={{RP1}: the silicon controlling {Raspberry Pi} 5 {I/O}, designed here at {Raspberry Pi}},
+	author={Eben Upton},
+	year={2023},
+	month={October},
+	url={https://www.raspberrypi.com/news/rp1-the-silicon-controlling-raspberry-pi-5-i-o-designed-here-at-raspberry-pi/},
+	note={Accessed: 09/25/2026}
+}
+
+@misc{elwell_piolib,
+	title={{PIOLib}: a userspace library for {PIO} control},
+	author={PhilE},
+	year={2024},
+	month={December},
+	url={https://www.raspberrypi.com/news/piolib-a-userspace-library-for-pio-control/},
+	note={Accessed: 09/25/2026}
+}
+
+@misc{w1thermsensor,
+	title={w1thermsensor},
+	author={Tim O Furrer},
+	url={https://github.com/timofurrer/w1thermsensor},
+	note={Version 2.3.0. Accessed: 09/19/2026}
+}
+
+@misc{w1_therm_api,
+	title={w1-therm-api},
+	author={Troxel},
+	url={https://github.com/troxel/w1-therm-api},
+	note={Version 0.1.0. Accessed: 09/19/2026}
+}
+
+@misc{w1_therm_reader,
+	title={w1\_therm\_reader},
+	author={Gaetronik},
+	url={https://github.com/gaetronik/w1_therm_reader},
+	note={Version 0.1.1. Accessed: 09/19/2026}
+}
+
+@misc{w1thermsensor_pr120,
+	title={w1thermsensor {PR} 120},
+	author={SimonInOps},
+	year={2025},
+	month={February},
+	url={https://github.com/timofurrer/w1thermsensor/pull/120},
+	note={Accessed: 09/22/2026}
+}
+
+@misc{fuchsnj_one_wire_bus,
+	title={one-wire-bus},
+	author={fuchsnj},
+	year={2020},
+	month={January},
+	url={https://github.com/fuchsnj/one-wire-bus},
+	note={Version 0.1.1. Accessed: 09/22/2026}
+}
+
+@misc{fuchsnj_ds18b20,
+	title={ds18b20},
+	author={fuchsnj},
+	year={2020},
+	month={August},
+	url={https://github.com/fuchsnj/ds18b20},
+	note={Version 0.1.1. Accessed: 09/22/2026}
+}
+
+@misc{crates_io_onewire,
+	title={Onewire keyword search on crates.io},
+	url={https://crates.io/keywords/onewire},
+	note={Accessed: 10/29/2026}
+}
+
+@misc{wb_mqtt_w1,
+	title={wb-mqtt-w1},
+	url={https://github.com/wirenboard/wb-mqtt-w1},
+	note={Version 2.4.3. Accessed: 10/29/2026}
+}
+
+@misc{rpi_linux_pr6470,
+	title={{RP1} {PIO} support},
+	author={pelwell},
+	year={2024},
+	month={November},
+	url={https://github.com/raspberrypi/linux/pull/6470},
+	note={Accessed: 10/29/2026}
+}
+
+@misc{pigpio_issue589,
+	title={pigpio will not run on a {Pi} 5},
+	author={JinShil},
+	year={2023},
+	month={November},
+	url={https://github.com/joan2937/pigpio/issues/589},
+	note={Accessed: 09/25/2026}
+}
+
+@misc{embedded_hal_issue54,
+	title={1-wire {API}},
+	author={reportingsjr},
+	year={2018},
+	month={March},
+	url={https://github.com/rust-embedded/embedded-hal/issues/54},
+	note={Accessed: 10/05/2026}
+}
+
+@misc{rpi_forum_354551,
+	title={Temperature reading code not working ?},
+	author={PuddyMuddle},
+	year={2023},
+	month={August},
+	url={https://forums.raspberrypi.com/viewtopic.php?t=354551},
+	note={Accessed: 10/04/2026}
+}
+
+% NOT YET CITED:
+
+@misc{codeandlife_gpio,
+	title={Benchmarking {Raspberry Pi} {GPIO} Speed},
+	author={Joonas Pihlajamaa},
+	year={2012},
+	month={July},
+	url={https://codeandlife.com/2012/07/03/benchmarking-raspberry-pi-gpio-speed/},
+	note={Accessed: 10/20/2026}
+}
+
+@misc{rp1_peripherals_datasheet,
+	title={{RP1} Peripherals Datasheet},
+	author={{Raspberry Pi Foundation}},
+	year={2023},
+	month={November},
+	url={https://datasheets.raspberrypi.com/rp1/rp1-peripherals.pdf},
+	note={Accessed: 10/01/2026}
+}
+
+@misc{adafruit_libgpiod_pi5,
+	title={Comparing libgpiod and gpiozero speeds on the {Raspberry Pi} 5},
+	author={Adafruit},
+	year={2023},
+	month={October},
+	url={https://blog.adafruit.com/2023/10/26/comparing-libgpiod-and-gpiozero-speeds-on-the-raspberry-pi-5/},
+	note={Accessed: 10/29/2026}
+}
+
+@misc{state_of_rust_embedded_2026,
+	title={The State of Rust for Embedded Development in Mid-2026},
+	author={Derek Molloy},
+	year={2026},
+	month={July},
+	url={https://derekmolloy.ie/the-state-of-rust-for-embedded-development-in-mid-2026/},
+	note={Accessed: 10/29/2026}
+}
+
+@misc{voltaat_ds18b20,
+        title={DS18B20 Waterproof Digital Temperature Sensor – Stainless Steel Probe},
+        author={{Voltaat}},
+        url={https://www.voltaat.com/products/digital-thermometer},
+        note={Accessed: Oct. 31, 2026}
 }

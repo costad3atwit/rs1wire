@@ -1,0 +1,71 @@
+INDIVIDUAL SENSOR DIAGRAM (A):
+
+
+
+@startuml
+hide empty description
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontSize 10
+skinparam noteFontSize 9
+skinparam ArrowFontSize 9
+skinparam nodesep 50
+skinparam ranksep 35
+
+[*] --> Unread : bulk_convert()\n(t0 = trigger returns)
+
+Unread --> Read : read(id)\n[age < max_age]
+Unread --> Discarded : handle dropped\n/ read, discard
+Unread --> Unread : read(id)\n[age >= max_age]\n/ Err Expired
+Read --> Read : read(id)\n/ Err AlreadyRead
+
+Read --> [*]
+Discarded --> [*]
+
+note left of Unread
+  id not in snapshot:
+  Err NotInConversion
+end note
+
+note left of Read
+  marked Read before the
+  kernel read; returns Ok(t),
+  CrcMismatch, ReadFailed,
+  PowerOnReset, or Parse
+end note
+@enduml
+
+BUS DIAGRAM - (B):
+@startuml
+hide empty description
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontSize 10
+skinparam noteFontSize 9
+skinparam ArrowFontSize 9
+
+state "Idle (0)" as Idle
+state "InProgress (-1)" as IP
+state "CompleteUnread (1)" as CU
+
+[*] --> Idle : w1 driver loaded
+Idle --> IP : trigger
+IP --> CU : conversion done
+CU --> IP : trigger\n(replaces results)
+CU --> Idle : all sensors read\nor discarded
+
+note right of Idle
+  Sensor::read():
+  0  -> fresh conversion
+  1  -> Err BulkPending
+  -1 -> Err ConversionInProgress
+end note
+
+note right of IP
+  bulk_convert() blocks through -1
+  (synchronous trigger write);
+  seen only by other callers.
+  bulk_convert() in -1:
+  Err ConversionInProgress
+end note
+@enduml

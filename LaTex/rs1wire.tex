@@ -8,16 +8,24 @@
 \usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
-\usepackage{xcolor}
+\usepackage[table]{xcolor} % table: enables \rowcolor
+% Error taxonomy (Table~\ref{tab:errors}) group shading
+\definecolor{errsetup}{RGB}{222,235,250}
+\definecolor{errread}{RGB}{250,224,224}
+\definecolor{errbulk}{RGB}{252,245,210}
+\definecolor{errother}{RGB}{226,242,226}
+\usepackage{url}
+\usepackage{tabularx} % full-width tables (Tables~\ref{tab:seq}, \ref{tab:bulk})
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
 \usepackage[caption=false,font=footnotesize]{subfig}
+\usepackage[hidelinks]{hyperref} % load last: makes \ref and \cite clickable
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
 
-\title{rs1Wire: An Efficient Rust Ecosystem for 1-Wire Thermal Sensors\\
+\title{rs1Wire: An Efficient Rust Ecosystem for 1-Wire Thermal Sensors Using Linux\\
 {\footnotesize \textsuperscript{*}Note: Sub-titles are not captured for https://ieeexplore.ieee.org  and
 should not be used}
-\thanks{Identify applicable funding agency here. If none, delete this.}
 }
 
 \author{\IEEEauthorblockN{1\textsuperscript{st} David Costa}
@@ -36,57 +44,527 @@ neyaza@wit.edu}
 \maketitle
 
 \begin{abstract}
-This document is a model and instructions for \LaTeX.
-This and the IEEEtran.cls file define the components of your paper [title, text, heads, etc.]. *CRITICAL: Do Not Use Symbols, Special Characters, Footnotes, 
-or Math in Paper Title or Abstract.
+
+This paper is a Work-in-Progress, and as such contains many bulleted lists for my own organizational purposes.
+The Introduction, and Methodology sections are have been written with the flow of the final paper.
+Other sections are being converted from bulleted notes to full prose.
+
 \end{abstract}
 
 \begin{IEEEkeywords}
-component, formatting, style, styling, insert.
+Rust, 1-Wire, Linux, Embedded Systems
 \end{IEEEkeywords}
 
-\section*{Introduction}
-INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION INTRODUCTION
+\section{Introduction}
 
-\subsection{Subsection 1}
-
-More asdfasdfasdfasdfasdfasdfasdfasfasdfasdf\\ details asdfasdfasdfasdfasdfasdfasdfasfasdfasdf\\ about asdfasdfasdfasdfasdfasdfasdfasfasdfasdf\\ Subsection asdfasdfasdfasdfasdfasdfasdfasfasdfasdf\\ 1 asdfasdfasdfasdfasdfasdfasdfasfasdfasdf\\ go asdfasdfasdfasdfasdfasdfasdfasfasdfasdf\\ here asdfasdfasdfasdfasdfasdfasdfasfasdfasdf.
+The 1-Wire protocol, developed by Maxim Integrated (now Analog Devices), connects multiple devices over a single data line \cite{Analog_Devices_1w}, which makes it well suited to applications where space and wiring are limited.
+One of the most popular 1-Wire devices is the DS18B20 digital temperature sensor \cite{ds18b20_datasheet}, widely used in hobbyist and laboratory settings, particularly with single-board computers (SBCs) such as the Raspberry Pi and BeagleBone.
+On these boards, Linux provides a 1-Wire subsystem: the `w1-gpio` bus master drives the bus, and the `w1\_therm` slave driver exposes each sensor's readings, in millidegrees Celsius, as sysfs files under `/sys/bus/w1/devices/` \cite{kernel_w1_therm_docs}.
+At the same time, Rust is gaining traction in embedded and systems programming for its memory safety and efficient runtime \cite{sharma2024rust}.
+Yet no maintained Rust library makes full use of the kernel's 1-Wire interface, and this work aims to fill that gap in both existing software and the literature.
 
 \subsection{Abbreviations and Acronyms}\label{AA}
-Define abbreviations and acronyms the first time they are used in the text, 
-even after they have been defined in the abstract. Abbreviations such as 
-IEEE, SI, MKS, CGS, ac, dc, and rms do not have to be defined. Do not use 
-abbreviations in the title or heads unless they are unavoidable.
+This table is for self use to verify that abbreviations get defined when they are first used.
+\begin{table}[htbp]
+\caption{Abbreviations and Acronyms}
+\begin{center}
+\begin{tabular}{|c|p{4.5cm}|}
+\hline
+\textbf{Abbreviation/Acronym}&\textbf{Definition} \\
+\hline
+SBC & Single Board Computer \\
+\hline
+GIL & Global Interpreter Lock \\
+\hline
+ABI & Application Binary Interface \\
+\hline
+API & Application Programming Interface \\
+\hline
+CRC & Cyclic Redundancy Check \\
+\hline
+EEPROM & Electrically Erasable Programmable Read-Only Memory \\
+\hline
+FFI & Foreign Function Interface \\
+\hline
+GPIO & General Purpose Input/Output \\
+\hline
+HAL & Hardware Abstraction Layer \\
+\hline
+I2C & Inter-Integrated Circuit \\
+\hline
+I/O & Input/Output \\
+\hline
+IRQ & Interrupt Request \\
+\hline
+MQTT & Message Queuing Telemetry Transport \\
+\hline
+OS & Operating System \\
+\hline
+PCIe & Peripheral Component Interconnect Express \\
+\hline
+PEP & Python Enhancement Proposal \\
+\hline
+PR & Pull Request \\
+\hline
+PyPI & Python Package Index \\
+\hline
+RAM & Random Access Memory \\
+\hline
+ROM & Read-Only Memory \\
+\hline
+RT & Real-Time \\
+\hline
+SoC & System on a Chip \\
+\hline
+sysfs & System Filesystem \\
+\hline
+VCC & Positive supply voltage \\
+\hline
+%CONTINUE TABLE HERE AS NECESSARY
+\end{tabular}
+\end{center}
+\end{table}
 
-\section*{Related Work}
-Discuss related work ie: python modules and rust crates here. Make sure to explain what the differences and advantages/disadvantages of each are. Explain where the gap lies and what this crate does to address it.
+\subsection{Problem}
+
+\textbf{Rust users on Linux SBCs}
+
+Current Rust 1-Wire crates focus almost entirely on implementing the protocol in userspace using bit-banging and the widely utilized embedded-hal crate \cite{fuchsnj_one_wire_bus, fuchsnj_ds18b20}. 
+This is because many Rust users are embedded developers who work on bare-metal microcontrollers \cite{state_of_rust_embedded_2026} without an operating system. 
+This method is unsuitable for Linux developers because userspace bit-banging is exposed to scheduler preemption and jitter, which can corrupt the timing-sensitive 1-Wire protocol \cite{adam2021performance}. 
+The only Rust crate that reads kernel output, `w1\_therm\_reader`, is a small single-sensor parser that its author describes as incomplete: ``If you want a complete OneWire library, this crate is not the one you're looking for'' \cite{w1_therm_reader}.
+It lacks features such as device discovery, bulk reading, and configuration, which this project aims to provide.
+It also panics on malformed input, which is not ideal for robust applications.
+
+\textbf{Python users}
+
+While Rust is in itself a systems programming language and can be used with an operating system, when one is present (e.g., Linux), Python is often the language of choice for hobbyist and experimental userspace applications. 
+As such there are several Python libraries available for interacting with 1-Wire devices via the Linux sysfs interface. 
+The de facto standard Python library packaged with Raspberry Pi OS, `w1thermsensor`, reads sensors one at a time in released versions \cite{w1thermsensor}. 
+This results in a cost of approximately 750 ms (12-bit conversion) per sensor \cite{ds18b20_datasheet}, so N sensors cost approximately N conversion times. 
+This notably ignores the update to the linux kernel which supports bulk reading \cite{kernel_w1_therm_docs}. 
+Users have requested bulk read functionality (w1thermsensor issue \#115), and PR \#120 implements it but remains unmerged \cite{w1thermsensor_pr120}. 
+Other less prolific Python modules do utilize this kernel feature, but none of them prevent stale reads, which can return trigger-time values hours later with no expiry \cite{kernel_w1_therm_abi}. 
+This is a hazard for monitoring and control loops, as it can result in silent stale or wrong values, which are worse than errors. 
+The existing bulk consumers (w1-therm-api \cite{w1_therm_api}, wb-mqtt-w1 \cite{wb_mqtt_w1}) do not prevent this at the API level. 
+This is a significant gap because multi-sensor setups are the main draw of the 1-Wire protocol, and they scale linearly in read latency under sequential reads. 
+Additionally, generic failure values (w1-therm-api returns `None` for every failure) hide the cause of the failure, making it difficult to diagnose issues such as wiring problems, CRC errors, power-on resets, or missing drivers.
+
+\subsection{Scope}
+
+This project is limited in scope by the following hardware and software constraints:
+\begin{itemize}
+\item \textbf{Hardware:} Raspberry Pi 5, DS18B20 only \cite{ds18b20_datasheet}, 10 sensors on one bus, externally powered (not parasite)
+\item \textbf{Software:} Linux kernel w1 sysfs interface \cite{kernel_w1_therm_docs}; no userspace 1-Wire timing
+\item \textbf{Kernels tested:} `6.18.50+rpt-rpi-2712` (Raspberry Pi OS, Debian 13 trixie) `[will verify at time of experiment execution. Stated as the current version]`; second distribution `[TBD]` | third distribution `[TBD]`
+\end{itemize}
+It provides exactly the following features:
+\begin{enumerate}
+\item \textbf{rs1wire:} Rust crate for the kernel `w1\_therm` sysfs interface with discovery, individual reads, bulk reads, resolution/conv\_time configuration
+\item \textbf{Bulk-read API:} that refuses stale reads by construction (double read, expired window, sensor not in conversion, pending result before an individual read)
+\item \textbf{Typed error taxonomy:} with a distinct variant per failure cause; parser never panics
+\item \textbf{Independent CRC-8 recomputation:} cross-checked against the kernel's verdict on every read path
+\item \textbf{Reproducible benchmark:} that separates the architecture effect (bulk vs. sequential) from the language/library effect (Rust vs. Python if the next feature is implemented)
+\item \textbf{(Stretch goal) PyO3 Python bindings:} with the global interpreter lock (GIL) released during blocking reads `[only if built]`
+\end{enumerate}
+
+\section{Related Work}
+As discussed previously, there are existing software packages written in multiple programming languages which target a similar problem space to rs1wire.
+The following subsections summarize the relevant work, organized by programming language and approach which illustrates the gap rs1wire aims to fill.
 
 \subsection{Python}
 
+\textbf{w1thermsensor} (Timo Furrer; PyPI 2.3.0, Sep 27 2023) \cite{w1thermsensor}
+
+\begin{itemize}
+\item De facto standard; packaged in Raspberry Pi OS [VERIFY - cite it]
+\item Reads `w1\_slave` per sensor; independent blocking file I/O
+\item No `therm\_bulk\_read` in any released version (verified by grepping tagged releases still need to cite version tags checked)
+\item Documented multi-sensor pattern is a sequential loop of `get\_temperature()`
+\item CRC checking implemented correctly; the gap is the missing bulk path, not carelessness
+\item Ships `AsyncW1ThermSensor`; concurrency does not help on one bus (see Background, bus mutex)
+\end{itemize}
+
+\textbf{w1thermsensor PR \#120}, ``Add bulk read temperature method'' (opened Feb 13 2025, unmerged) \cite{w1thermsensor_pr120}
+
+\begin{itemize}
+\item Closes issue \#115 (users requesting bulk read): evidence of demand
+\item Author-reported: 5 sensors, 12-bit, ~4.02 s to ~0.90 s; a user reported 7 sensors ~4.8 s to ~0.8 s (Feb 2026)
+\item Informal, unreviewed numbers: use as sanity check on expected effect size, not as a result
+\end{itemize}
+
+\textbf{w1-therm-api} (troxel; PyPI) \cite{w1_therm_api}
+
+\begin{itemize}
+\item Genuine bulk read utilizing Linux sysfs: `start\_conversion()` writes `trigger`, `wait\_for\_conversion()` polls every 5 ms, `read\_temperatures()` reads each `temperature` file
+\item No freshness enforcement:
+  \begin{itemize}
+  \item `read\_temperatures()` without a trigger silently does sequential per-sensor conversions
+  \item Reading long after a trigger silently returns trigger-time values
+  \item Partial reads then `read\_temperatures()` silently mix stale bulk and fresh values
+  \end{itemize}
+\item Every failure (missing sensor, CRC, unreadable file, power-on value) returns `None`; trigger failures only printed
+\item Falls back to `w1\_slave` on invalid/`85000`; per kernel source that second access starts a fresh conversion, silently adding ~one conversion time [VERIFY - grab kernel source w1\_therm.c line numbers to cite]
+\item Treats every 85000 as power-on reset (discards genuine 85 C)
+%\item [VERIFY doublecheck this] Requires Python 3.10+ in practice despite README claiming 3.7+ (PEP 604 annotations)
+\item Small/new: 3 commits, 0 stars
+\end{itemize}
+
+\textbf{Python performance in systems/hardware code} (motivation for a compiled core)
+
+\begin{itemize}
+\item Rust/C/C++ comparably fast, generally outperform Python \cite{bugden2022safety}
+\item On ESP32, MicroPython is orders of magnitude slower than compiled languages (e.g. CRC-32 ~986 us vs ~3 us C vs ~6.6 us Rust) \cite{plauska2022performance}
+\item Pure-Python reimplementations of C-backed routines: 6x to 17,000x slower \cite{ding2026stdlib}
+\item For this workload the ~750 ms conversion dominates \cite{ds18b20_datasheet}. Language speed only matters in per-sensor overhead
+\end{itemize}
 
 \subsection{Rust}
 
-\section*{Background}
+\textbf{embedded-hal 1-Wire crates} (fuchsnj/one-wire-bus, fuchsnj/ds18b20, others on crates.io `onewire` keyword) \cite{fuchsnj_one_wire_bus, fuchsnj_ds18b20, crates_io_onewire}
 
+\begin{itemize}
+\item Designed for bare-metal MCUs; implement 1-Wire timing by toggling GPIO with delays
+\item Assume no OS preemption mid-pulse; that assumption breaks in Linux userspace \cite{adam2021performance}
+\item Rust embedded community frames 1-Wire as a bit-banging HAL problem (embedded-hal issue \#54) \cite{embedded_hal_issue54}
+\end{itemize}
 
-\section*{Methodology}
+\textbf{w1\_therm\_reader} (gaetronik, v0.1.0, Sep 1 2019) \cite{w1_therm_reader}
 
-Show a figure of my hardware setup here
-\begin{figure*}[t]
+\begin{itemize}
+\item Only Rust crate found that reads kernel `w1\_slave`
+\item `temp.parse().unwrap()`: malformed `t=` line panics despite `io::Result` return type
+\item CRC check is only the kernel's `crc=YES` string; no recompute
+\item README example references a nonexistent function
+\item No discovery, bulk read, resolution/conv\_time, 85 C handling; sysfs root hardcoded
+\item Built on nom 5; unchanged since release, 0 stars
+\end{itemize}
+
+\textbf{Rust in embedded generally}: value and open problems \cite{sharma2024rust}; ecosystem overview \cite{vandervelden2024overview}
+
+\subsection{Other languages / applications}
+
+\textbf{wb-mqtt-w1} (Wiren Board, C++) \cite{wb_mqtt_w1}
+
+\begin{itemize}
+\item Detects `therm\_bulk\_read` per bus master, uses bulk when supported
+\item Application daemon (MQTT), not a reusable library
+\end{itemize}
+
+\subsection{Python bindings for Rust (only if stretch goal is built)}
+
+\begin{itemize}
+\item PyO3 gives real speedups but leaves per-call FFI overhead (~0.14 ms/call plus constant base) \cite{amaral2025rust}
+\item Speedup contingent on workload shape \cite{harding2025improving}
+\end{itemize}
+
+\subsection{Gap summary}
+
+Table~\ref{tab:gap} compares the libraries above against rs1wire on the features this work targets.
+
+\begin{table*}[htbp]
+\caption{Gap Summary}
+\begin{center}
+\footnotesize
+\begin{tabular}{|p{2.2cm}|c|p{1.2cm}|c|p{1.5cm}|p{1.5cm}|p{2.0cm}|p{1.3cm}|p{1.6cm}|}
+\hline
+\textbf{Library} & \textbf{Lang} & \textbf{Kernel sysfs} & \textbf{Discovery} & \textbf{Bulk} & \textbf{Stale-safe} & \textbf{Typed errors} & \textbf{Config} & \textbf{Maintained} \\
+\hline
+w1thermsensor 2.3.0 & Py & yes & yes & no (PR \#120 open) & inherent (no bulk) & yes, partial & yes, partial & yes \\
+\hline
+w1-therm-api & Py & yes & yes & yes & no & no (`None`) & no & new \\
+\hline
+wb-mqtt-w1 & C++ & yes & yes & yes & yes, partial & n/a & no & yes \\
+\hline
+one-wire-bus / ds18b20 & Rust & no (bit-bang) & yes & yes (Skip ROM) & no (caller-managed) & yes & yes & no \\
+\hline
+w1\_therm\_reader & Rust & yes & no & no & inherent (no bulk) & no (io::Error + string) & no & dormant (2026 dependency bump only) \\
+\hline
+\textbf{rs1wire} & Rust & yes & yes & yes & \textbf{yes} & \textbf{yes} & yes & yes \\
+\hline
+\end{tabular}
+\label{tab:gap}
+\end{center}
+\end{table*}
+
+\section{Background}\label{sec:background}
+
+\subsection{1-Wire protocol}
+
+The 1-wire protocol is a simple, low-cost, single-master, multi-slave communication system that can use a single data line for both power and data transmission \cite{Analog_Devices_1w}.
+Devices can be powered externally (approach used in this work) or by parasite power from the data line.
+The master initiates all communication on the bus and controls the timing of all transactions.
+A transaction begins with a reset pulse from the master, followed by a presence pulse from the slave(s).
+Bits are sent in time slots on the order of tens of microseconds, with the master and slaves sampling at fixed offsets meaning that timing errors can easily corrupt bits.
+Each 1-Wire device has a unique 64-bit Read Only Memory (ROM) ID comprised of an 8 bit family code, a 48-bit serial number, and an 8-bit CRC \cite{Analog_Devices_1w}.
+Software (bit-banged) masters are common, but the precise timing of the protocol is difficult to perform correctly in spaces where the software isn't in total control of the hardware \cite{Analog_Devices_1w_software}.
+\subsection{DS18B20}
+
+\begin{figure}[htbp]
   \centering
-  \subfloat[Full setup]{\includegraphics[width=0.32\textwidth]{hardware.jpg}\label{fig:hardware}}
-  \hfill
-  \subfloat[Breadboard]{\includegraphics[width=0.32\textwidth]{breadboard.jpg}\label{fig:breadboard}}
-  \hfill
-  \subfloat[Raspberry Pi 5]{\includegraphics[width=0.32\textwidth]{rpi5.jpg}\label{fig:rpi5}}
+  \includegraphics[width=0.6\columnwidth]{ds18b20_img.jpg}
+  \caption{DS18B20 waterproof probe. Image from \cite{voltaat_ds18b20}.}
+  \label{fig:ds18b20}
+\end{figure}
+
+\begin{itemize}
+\item Family code `0x28` \cite{ds18b20_datasheet}
+\item Range -55 to +125 C; +/-0.5 C accuracy from -10 to +85 C \cite{ds18b20_datasheet}
+\item Configurable resolution 9-12 bits; max conversion time 93.75 / 187.5 / 375 / 750 ms \cite{ds18b20_datasheet}
+\item Convert T command starts conversion; result read from 9-byte scratchpad \cite{ds18b20_datasheet}
+\item Scratchpad byte 8 is Dallas/Maxim CRC-8 over bytes 0-7 (polynomial $x^8 + x^5 + x^4 + 1$) \cite{ds18b20_datasheet}
+\item Power-on reset value of the temperature register is +85 C \cite{ds18b20_datasheet}; indistinguishable from a genuine 85 C reading
+\item Resolution lives in scratchpad RAM (lost on power off unless copied to EEPROM) \cite{ds18b20_datasheet}
+\item Convert T can be addressed to all devices at once (Skip ROM), which is what makes bulk conversion possible \cite{ds18b20_datasheet}
+\end{itemize}
+
+\subsection{Linux w1 subsystem}
+
+\begin{itemize}
+\item `w1-gpio`: bus master driver that bit-bangs a GPIO pin from kernel space
+  \begin{itemize}
+  \item Enabled on Raspberry Pi via `dtoverlay=w1-gpio` in `/boot/firmware/config.txt` (default GPIO4; `gpiopin=` to change) `[VERIFY + cite RPi config docs]`
+  \end{itemize}
+\item `w1\_therm`: slave driver for temperature sensors \cite{kernel_w1_therm_docs}
+\item sysfs layout:
+  \begin{itemize}
+  \item `/sys/bus/w1/devices/w1\_bus\_masterN/` with `w1\_master\_slaves`, `w1\_master\_slave\_count`, `w1\_master\_search`, `therm\_bulk\_read`
+  \item `/sys/bus/w1/devices/28-xxxxxxxxxxxx/` (symlink into its bus master) with `w1\_slave`, `temperature`, `resolution`, `conv\_time`, others \cite{kernel_w1_therm_abi}
+  \end{itemize}
+\item `w1\_slave` format (two lines):
+  \begin{itemize}
+  \item Line 1: 9 scratchpad bytes, `: crc=XX YES\textbar{}NO` \cite{kernel_w1_therm_docs}
+  \item Line 2: bytes of the last scratchpad that passed CRC (not necessarily the current one), then `t=\textless{}millidegrees C\textgreater{}`
+  \end{itemize}
+\item Reading `w1\_slave` or `temperature` with no pending bulk result triggers a single-sensor conversion and blocks ~conv\_time \cite{kernel_w1_therm_abi}
+\item `therm\_bulk\_read` (per bus master):
+  \begin{itemize}
+  \item Write `trigger`: Convert T to all sensors on the bus \cite{kernel_w1_therm_docs}
+  \item Write is synchronous: kernel sleeps for the longest `conv\_time` on the bus before returning (from `w1\_therm.c`, rpi-6.18.y) `[VERIFY line refs]`
+  \item Read: `-1` conversion in progress, `1` complete with unread results, `0` nothing pending \cite{kernel_w1_therm_docs, kernel_w1_therm_abi}
+  \item Default permissions 0644 root: unprivileged users cannot trigger
+  \end{itemize}
+\item Stale-read mechanism (kernel source, rpi-6.18.y):
+  \begin{itemize}
+  \item Each sensor has a pending-result flag set by the bulk trigger
+  \item `w1\_slave\_show` / `temperature\_show`: if flag is 1, read scratchpad and clear it; if 0, call `convert\_t()` (fresh conversion)
+  \item No expiry: a result read hours later is still the trigger-time value
+  \item Consequence 1: late read returns stale data silently \cite{kernel_w1_therm_abi}
+  \item Consequence 2: second read of same sensor silently costs a new full conversion
+  \end{itemize}
+\item Read failures: kernel returns an empty file rather than an error code
+\item Bus mutex (rpi-6.18.y): without strong pull-up (externally powered), held through the conversion sleep, so concurrent per-sensor conversions on one bus serialize; with strong pull-up it is released before sleeping `[VERIFY on hardware: async vs. sequential timing]`
+  \begin{itemize}
+  \item Implication: threads/asyncio cannot recover the bulk advantage on a single externally powered bus
+  \end{itemize}
+\end{itemize}
+
+\subsection{Userspace timing on Linux (why not bit-bang in userspace)}
+
+\begin{itemize}
+\item Userspace worst-case GPIO latency ~147-160 us vs. kernel-space ~67-76 us on Pi 3 / BeagleBone \cite{adam2021performance} `[VERIFY figures]`
+\item PREEMPT\_RT brings jitter below ~50 us \cite{adam2021real}
+\item Even RT Linux shows tens of us jitter; sub-us needs interrupt isolation \cite{zhou2025towards} (preprint)
+\item Real-time tuning needs isolcpus, IRQ affinity, tickless operation \cite{madden2019challenges}
+\item 1-Wire slots are tens of us \cite{Analog_Devices_1w_software}, so these latencies are the same order as the slot timing
+\item Caveat to state: kernel `w1-gpio` also bit-bangs; kernel space reduces but does not eliminate the problem, and rs1wire inherits it
+\end{itemize}
+
+\subsection{Raspberry Pi 5 / RP1 specifics (primary sources only, say so)}
+
+\begin{itemize}
+\item GPIO moved off the SoC to the RP1 I/O controller over PCIe; inherently higher latency than on-die GPIO \cite{upton_rp1}
+\item Most PIOLib operations take at least 10 us \cite{elwell_piolib}
+\item Direct register access libraries (pigpio, RPi.GPIO) broke on Pi 5 \cite{pigpio_issue589}
+\item RP1 registers proxied via firmware mailbox in some kernel paths \cite{rpi_linux_pr6470} `[VERIFY context]`
+\item Earlier w1-gpio instability on Pi 5 fixed from kernel 6.6.28+ `[VERIFY: replace forum source with kernel commit/changelog]`
+\item `[VERIFY]` ~1 us direct-write figure from RP1 datasheet before quoting
+\item Open note: Raspberry Pi docs inconsistent on PCIe generation (Gen 2 x4 vs. Gen 3); avoid stating it or cite carefully
+\end{itemize}
+
+\section{Methodology}
+
+% Design and harness are implemented, so these bullets reflect the current code. Hardware figures already placed in rs1wire.tex.
+
+\subsection{Design goals}
+
+The rs1wire library is designed to consume only kernel-produced results so as to avoid implementing 1-Wire timing in userspace and inheriting the associated latency and jitter issues.
+It also makes stale bulk reads impossible to do by accident via runtime checks and type system enforcement.
+It supports user's understanding of potential issues with one error variant per failure case and by never panicking on kernel output.
+
+\subsection{API structure (Rust)}
+
+The public API mirrors the sysfs hierarchy in three handle types, and every fallible call returns a typed `Error` rather than a sentinel value.
+The entry point, `W1`, holds only the sysfs root path.
+It defaults to `/sys/bus/w1/devices`, but `W1::with\_root()` accepts any directory, so tests can run against fixture trees instead of hardware.
+From it, `bus\_masters()` and `bus(name)` return bus handles, and `sensors()` and `sensor(id)` find DS18B20s across all buses.
+A missing root, or one with no bus masters, is reported as the `w1-gpio` module not being loaded.
+
+A `BusMaster` discovers its sensors from the kernel's `w1\_master\_slaves` list, keeping only family `0x28`.
+It also owns the bulk path: `bulk\_status()` maps the `therm\_bulk\_read` values `-1`, `1`, and `0` to an enum, and `bulk\_convert()` writes `trigger` and returns a `BulkConversion` handle (Section~\ref{sec:stale}).
+`discard\_pending()` clears results left behind by another process.
+
+A `Sensor` performs individual reads through `read()`, or `read\_with()` to change the 85~$^\circ$C policy, and refuses to read while a bulk result is pending.
+It also gets and sets `resolution` and `conv\_time`.
+These writes require root, and the resolution lives in sensor RAM, since saving it to EEPROM is not supported; changing it also resets any `conv\_time` override.
+
+The value types encode the kernel's rules so that invalid input cannot be expressed.
+`DeviceId` is parsed strictly from the kernel's `28-xxxxxxxxxxxx` name, and `Temperature` stores integer millidegrees exactly as reported, with no floating-point rounding until the caller asks for degrees.
+`Resolution` is a four-variant enum covering 9 to 12 bits.
+`ConvTime` is `DEFAULT`, `MEASURE` (the kernel times a real conversion), or a fixed number of milliseconds of at least 2, since the kernel reserves 0 and 1 for the first two.
+
+\subsection{Stale-read prevention (core contribution; candidate figure: state diagram)}\label{sec:stale}
+
+The kernel's bulk-read interface leaves freshness entirely to the caller.
+After a `trigger`, each sensor holds a pending result that is returned by its next read, whenever that read happens, and is then cleared \cite{kernel_w1_therm_abi}.
+Two hazards follow.
+A read made long after the trigger silently returns the trigger-time value, and a second read of the same sensor silently starts a fresh single-sensor conversion, costing a full conversion time. rs1wire addresses both by tying every bulk result to the one conversion that produced it.
+`bulk\_convert()` does not return temperatures directly; it returns a `BulkConversion` handle, and the only way to obtain a bulk result is through that handle.
+Fig.~\ref{fig:bulk_sensor} traces one sensor's result through that handle, and Fig.~\ref{fig:bulk_bus} shows the bus-wide status the kernel reports alongside it.
+
+\begin{figure}[htbp]
+  \centering
+  \subfloat[Per-sensor states within one `BulkConversion` handle]{\includegraphics[width=\columnwidth]{statediagram_panelA}\label{fig:bulk_sensor}}
+  \\
+  \subfloat[Bus status reported by `therm\_bulk\_read`]{\includegraphics[width=\columnwidth]{statediagram_panelB}\label{fig:bulk_bus}}
+  \caption{Bulk-read state machines. Refusals in (a) are enforced per handle within one process.}
+  \label{fig:bulk_states}
+\end{figure}
+
+Wherever possible, the handle's guarantees are enforced at compile time.
+The `BulkConversion` mutably borrows its `BusMaster`, so Rust's borrow checker allows at most one live conversion per bus handle, and a new trigger cannot be issued on that handle while results from the previous one are still outstanding.
+`read\_all()` takes the handle by value, consuming it, so reading the whole conversion twice is a compile error rather than a runtime bug; a `compile\_fail` doctest checks that this code is rejected.
+
+The remaining hazards depend on which sensor is requested and on elapsed time, so they cannot be expressed in types and are instead checked at runtime when `read(id)` is called.
+Each refusal is an `Error::StaleBulkRead` carrying a `StaleReason` that names the specific hazard.
+`AlreadyRead` rejects a second read of a sensor, which the kernel would otherwise serve with a new conversion.
+`Expired` rejects any read made later than `max\_age` after the conversion completed.
+Because the kernel has no expiry of its own, this window is a policy of the crate rather than a physical limit; it defaults to 1~s and is measured from the moment the `trigger` write returns, which is when the kernel marks results ready.
+`NotInConversion` rejects a sensor that was not on the bus when the conversion began, using the sensor list taken from `w1\_master\_slaves` just before the trigger.
+
+Results that are never requested also need handling, because the kernel would otherwise keep them and hand them to some later, unrelated read.
+When a `BulkConversion` is dropped, it reads and discards every result it did not hand out, at roughly 10--15~ms per sensor; sensors refused as `Expired` stay on this list, so their stale values are cleared as well.
+The same concern applies to individual reads made outside any handle.
+`Sensor::read()` first checks the bus's `therm\_bulk\_read` status and refuses with `BulkPending` if unread bulk results exist, since the kernel would return them in place of a new conversion.
+Results left by another process can be cleared with `BusMaster::discard\_pending()`.
+Likewise, `bulk\_convert()` refuses with `ConversionInProgress` if a conversion is already running on the bus.
+
+These guarantees are complete only within a single process.
+The status checks read `therm\_bulk\_read` and then act on it, so another process that triggers a conversion between the check and the read can still cause a stale or unexpected result.
+This race is a limitation of the sysfs interface, which offers no locking, and it is documented in the API.
+
+\subsection{Integrity checks}
+
+Every temperature rs1wire returns, from individual and bulk reads alike, comes from the sensor's `w1\_slave` file.
+Unlike `temperature`, which holds only the final value, `w1\_slave` includes the nine raw scratchpad bytes and the kernel's CRC verdict, which makes the following checks possible. w1-therm-api, by contrast, reads bulk results from `temperature` and has nothing to check them against.
+
+When the kernel's own read fails (a bus error, a CRC failure while fetching a bulk result, or an unresponsive sensor), it returns an empty file rather than an error code. rs1wire reports this as `ReadFailed`, or as `ConversionInProgress` if another process is mid-conversion.
+Non-empty content is parsed strictly, and anything unexpected is a `Parse` error rather than a panic.
+The second line's bytes belong to the last scratchpad that passed CRC, not necessarily the current one, so they are checked only for shape.
+
+rs1wire then recomputes the Dallas/Maxim CRC-8 over bytes 0--7 instead of trusting the kernel.
+A mismatch with byte 8, a kernel `NO`, or a kernel CRC that differs from the recomputed one is reported as `CrcMismatch`, so the two calculations can never disagree silently.
+An all-zero scratchpad passes CRC-8 but means nothing drove the bus, so it is caught first as `ReadFailed`.
+The reported temperature is the kernel's `t=` conversion of these CRC-checked bytes; rs1wire verifies the bytes but does not decode the temperature itself.
+
+Finally, the DS18B20 reads 85~$^\circ$C after power-on until its first conversion completes \cite{ds18b20_datasheet}, so an 85~$^\circ$C reading usually means lost power or an early read, yet is indistinguishable from a genuine one.
+By default (`PowerOnResetPolicy::Reject`) rs1wire returns `PowerOnReset`, and its documentation states that this discards genuine 85~$^\circ$C readings; applications that need them can opt in with `PowerOnResetPolicy::Accept`. w1-therm-api makes the same trade-off silently, returning `None`.
+
+% \begin{itemize}
+% \item CRC: recompute Dallas/Maxim CRC-8 over scratchpad bytes 0-7; error if it differs from byte 8, if kernel says `NO`, or if kernel's printed CRC differs from the recomputed one (`CrcMismatch`)
+% \item Bulk results also read through `w1\_slave`, so CRC is recomputed on every path (differs from w1-therm-api, which reads `temperature`)
+% \item Empty `w1\_slave` $\rightarrow$ `ReadFailed` (kernel's way of signalling a failed read)
+% \item All-zero scratchpad $\rightarrow$ `ReadFailed` (passes CRC-8 but means nothing drove the bus)
+% \item 85 C: `PowerOnResetPolicy::Reject` by default (`PowerOnReset` error); opt-in `Accept` for applications that measure 85 C. Trade-off stated explicitly, unlike w1-therm-api's silent discard
+% \end{itemize}
+
+\subsection{Error taxonomy}
+
+Table~\ref{tab:errors} lists every error variant, the condition that produces it, and how the caller should respond.
+
+\begin{table}[!ht]
+\caption{Error Taxonomy}
+\label{tab:errors}
+\begin{center}
+\footnotesize
+\begin{tabular}{|p{2.6cm}|p{2.9cm}|p{2.0cm}|}
+\hline
+\textbf{Variant} & \textbf{Cause / signal} & \textbf{Caller action} \\
+\hline
+\rowcolor{errsetup} \multicolumn{3}{|l|}{\textit{Setup and discovery}} \\
+\hline
+\rowcolor{errsetup} `ModuleNotLoaded` & -- & -- \\
+\hline
+\rowcolor{errsetup} `BusNotFound` & -- & -- \\
+\hline
+\rowcolor{errsetup} `DeviceNotFound` & -- & -- \\
+\hline
+\rowcolor{errsetup} `BulkReadUnsupported` & -- & -- \\
+\hline
+\rowcolor{errread} \multicolumn{3}{|l|}{\textit{Reading and data integrity}} \\
+\hline
+\rowcolor{errread} `ReadFailed` & -- & -- \\
+\hline
+\rowcolor{errread} `CrcMismatch` & -- & -- \\
+\hline
+\rowcolor{errread} `PowerOnReset` & -- & -- \\
+\hline
+\rowcolor{errread} `Parse` & -- & -- \\
+\hline
+\rowcolor{errbulk} \multicolumn{3}{|l|}{\textit{Bulk-read coordination}} \\
+\hline
+\rowcolor{errbulk} `ConversionInProgress` & -- & -- \\
+\hline
+\rowcolor{errbulk} `StaleBulkRead`: & -- & -- \\
+\hline
+\rowcolor{errbulk} \hspace{0.8em}`AlreadyRead` & -- & -- \\
+\hline
+\rowcolor{errbulk} \hspace{0.8em}`Expired` & -- & -- \\
+\hline
+\rowcolor{errbulk} \hspace{0.8em}`NotInConversion` & -- & -- \\
+\hline
+\rowcolor{errbulk} \hspace{0.8em}`BulkPending` & -- & -- \\
+\hline
+\rowcolor{errother} \multicolumn{3}{|l|}{\textit{Other}} \\
+\hline
+\rowcolor{errother} `Io` & -- & -- \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{Parser}
+
+All parsing of kernel output lives in pure functions with no I/O, which keeps it independently testable.
+The parser accepts only the exact format the kernel prints: two lines, exactly nine two-digit hex bytes, a `YES` or `NO` verdict, and plain decimal integers.
+Anything else, including `+` signs, overflowing values, extra lines, or wrong byte counts, is returned as a `Parse` error carrying a truncated copy of the offending input, so malformed sysfs content can never cause a panic.
+
+\subsection{Correctness testing}
+
+Because the sysfs root is configurable, the 46 unit tests run against fixture directory trees instead of hardware.
+They cover discovery across multiple buses, empty buses, and foreign device families; every CRC and read-failure path; the power-on reset policy; each bulk-read refusal; and configuration reads and writes.
+A `compile\_fail` doctest confirms that a consumed `BulkConversion` cannot be read again.
+Fixtures are plain files, however, so they cannot model the kernel clearing a bulk result when it is read.
+That behavior is checked on hardware by `examples/smoke.rs`, and the error rate of every method is also recorded during benchmark runs.
+
+\subsection{Hardware and software environments}
+
+All measurements use a Raspberry Pi 5 (1~GB) with ten DS18B20 waterproof probes on a single `w1-gpio` bus (Figs.~\ref{fig:setup} and~\ref{fig:circuit}).
+The sensors are externally powered rather than parasite-powered and share one 4.7~k$\Omega$ pull-up resistor.
+The bus is enabled with the `w1-gpio` device tree overlay in `/boot/firmware/config.txt` on GPIO pin 4, and sensors run at 12-bit resolution with the kernel's default `conv\_time`. 
+
+\begin{figure}[!ht]
+  \centering
+  \subfloat[Breadboard]{\includegraphics[width=0.9\columnwidth]{breadboard.jpg}\label{fig:breadboard}}
+  \\
+  \subfloat[Raspberry Pi 5]{\includegraphics[width=0.9\columnwidth]{rpi5.jpg}\label{fig:rpi5}}
   \caption{Test hardware: ten DS18B20 sensors on one w1-gpio bus.}
   \label{fig:setup}
-\end{figure*}
+\end{figure}
 % \centerline{\includegraphics{hardware.jpg}}
 % \centerline{\includegraphics{breadboard.jpg}}
 % \centerline{\includegraphics{rpi5.jpg}}
 
-Also include the diagram of the circuit setup here.
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{../hardware/rs1wire-sensor-bus/export/rs1wire-sensor-bus.pdf}
@@ -94,32 +572,217 @@ Also include the diagram of the circuit setup here.
   \label{fig:circuit}
 \end{figure*}
 
+The primary software environment is Raspberry Pi OS (Debian 13 ``trixie'') with kernel `6.18.50+rpt-rpi-2712`; a second and third distribution tested on the same board are `[TBD]` and `[TBD]`.
+The Python baselines are w1thermsensor 2.3.0 and w1-therm-api 0.1.0 under Python 3.13.5, and rs1wire is a release build from rustc 1.99.0 (b940084d7 2026-09-28). 
+Since `therm\_bulk\_read` is writable only by root by default, a udev rule grants the benchmark user's group write access so that bulk methods run unprivileged. 
+Every row of the benchmark output records the kernel, OS, library versions and source commit, resolution, and `conv\_time`, so each result can be traced to its exact environment.
 
-\section*{Results}
+% Original bullets, kept for their [VERIFY]/[TBD] notes:
+% \begin{itemize}
+% \item Raspberry Pi 5 (1 GB), 10x DS18B20 waterproof probes on one `w1-gpio` bus, externally powered (not parasite) `[VERIFY]`
+% \item Single 4.7 kOhm pull-up `[VERIFY: measured DATA-VCC resistance after removing parallel adapter-board pull-ups]`
+% \item DS2413 on a separate GPIO / overlay instance, isolated (only if Regime 3 runs)
+% \item Resolution 12-bit, kernel default conv\_time `[VERIFY from CSV columns]`
+% \end{itemize}
+% \begin{itemize}
+% \item OS 1: Raspberry Pi OS (Debian 13 trixie), kernel `6.18.50+rpt-rpi-2712`
+% \item OS 2: `[TBD distribution]`
+% \item Python baselines: w1thermsensor 2.3.0, w1-therm-api `[version]`, Python `[version]`; rustc `[version]`, release build
+% \item All recorded per row in `timings.csv` (kernel, os\_id, os\_version, library versions + source commit, resolution, conv\_time)
+% \end{itemize}
+
+\subsection{Experimental design}
+
+Table~\ref{tab:methods} lists the benchmarked methods. 
+Each library is run both sequentially and, where it supports it, in bulk. 
+The same CSV file is written to for all methods to ensure that results are interpretable regardless of the tool or language used.
+\begin{table}[!ht]
+\caption{Benchmark Methods}
+\begin{center}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{|p{3.0cm}|p{1.7cm}|p{3.2cm}|}
+\hline
+\textbf{Method} & \textbf{Reads} & \textbf{Calls per cycle} \\
+\hline
+`w1thermsensor-seq` (Py) & `w1\_slave` & `get\_temperature()` on each sensor \\
+\hline
+`w1-therm-api-seq` (Py) & `temperature` & `read\_temperatures()` with no trigger \\
+\hline
+`w1-therm-api-bulk` (Py) & `temperature` & `start\_conversion()`, `wait\_for\_conversion()`, `read\_temperatures()` \\
+\hline
+`rs1wire-seq` (Rust) & `w1\_slave` & `Sensor::read()` on each sensor \\
+\hline
+`rs1wire-bulk` (Rust) & `w1\_slave` & `bulk\_convert()`, then `BulkConversion::\allowbreak read()` on each sensor \\
+\hline
+\end{tabular}
+\label{tab:methods}
+\end{center}
+\end{table}
+
+The methods are chosen in pairs so that each comparison changes as little as possible. 
+Comparing w1-therm-api's sequential and bulk methods isolates the effect of bulk conversion within a single codebase, while comparing w1thermsensor's sequential reads against either bulk method shows the same effect against the de facto standard library. 
+With the architecture held fixed, w1-therm-api-bulk against rs1wire-bulk isolates the language and library effect, and the three sequential methods compare per-call overhead across libraries when every read pays a full conversion. 
+If the optional asynchronous w1thermsensor method is run, comparing it with bulk reads tests whether concurrency can close the gap; the bus mutex described in Section~\ref{sec:background} predicts that it cannot on an externally powered bus.
+
+Each method is measured at fixed sensor counts of $N = 1, 2, 5,$ and $10$, using the first $N$ sensors by ROM ID in both harnesses. 
+Within each trial, every (method, $N$) cell runs in a seeded random order, and the seed and actual run order are recorded so that slow drift is spread across methods rather than aligned with one. 
+One unrecorded warmup trial precedes the recorded ones, and `run\_all.sh` alternates harness blocks in the order Python, Rust, Rust, Python, with 15 trials per block (30 per library). 
+Since a bulk trigger converts every sensor on the bus, any results left unread after a bulk cell are drained untimed, and `therm\_bulk\_read` is checked before every cell, with any leftover result flagged in the output. 
+With the full bus present, the kernel's periodic bus search is disabled for the run and restored on exit, so a search cycle cannot hold the bus mutex mid-trial. 
+
+% Original bullets, kept for reference:
+% \begin{itemize}
+% \item w1thermsensor-seq vs. w1-therm-api-bulk / rs1wire-bulk: architecture (bulk vs. sequential)
+% \item w1-therm-api-seq vs. w1-therm-api-bulk: architecture within one codebase
+% \item w1-therm-api-bulk vs. rs1wire-bulk: language/library effect
+% \item w1thermsensor-seq vs. w1-therm-api-seq vs. rs1wire-seq: per-call overhead across libraries
+% \item Async vs. bulk (if run): does concurrency close the gap (expected no, given bus mutex)
+% \end{itemize}
+% \begin{itemize}
+% \item Sensor counts N = 1, 2, 5, 10, fixed in advance; first N sensors by ROM ID, same order in both harnesses
+% \item Each trial runs every (method, N) cell in a seeded random order; seed and `run\_order` recorded
+% \item 1 unrecorded warmup trial
+% \item `run\_all.sh` runs blocks py, rs, rs, py with 15 trials each (30 per library) so slow drift doesn't align with one library
+% \item Bulk triggers convert every sensor on the bus: after each bulk cell, unread sensors are drained (untimed); `therm\_bulk\_read` checked before every cell; violations flagged `BulkPendingBeforeRun` / `BulkPendingAfterDrain`
+% \item Kernel periodic bus search disabled (`w1\_master\_search = 0`) with full bus present, restored on exit, so search cycles can't hold the bus mutex mid-trial
+% \item `therm\_bulk\_read` made writable for the `gpio` group via udev rule; benchmarks run unprivileged
+% \item Pre-run checks: Cargo.lock committed, clean tree (no `-dirty` source), trigger writable, sudo for search toggle
+% \end{itemize}
+
+The following metrics are collected during each trial run:
+\begin{itemize}
+\item \textbf{Wall-clock time:} measured with `perf\_counter` in Python and `Instant` in Rust.
+\item \textbf{CPU time:} total process CPU time from `process\_time` (Python) and `CLOCK\_PROCESS\_CPUTIME\_ID` (Rust), split into user and system time with `getrusage`. The split is tick-sampled, so it is approximate. w1-therm-api's 5~ms polling loop counts toward its CPU time.
+\item \textbf{Phase timings:} for bulk methods, the trigger, wait, and readout phases are timed separately where possible. Because the kernel's trigger write is synchronous, w1-therm-api's trigger phase contains the whole conversion and its wait phase is near zero; rs1wire has no separate wait phase and leaves it empty.
+\item \textbf{Read outcomes:} the number of successful and failed reads, and the error type of each failure.
+\end{itemize}
+
+\subsection{Expected outcomes and threats to validity}
+
+The outcome for each trial has not been confirmed yet but is expected to show parity across all libraries at $N$=1; show rs1wire clearly faster than w1thermsensor-seq at $N$ \textgreater{} 1 and at least competitive with w1-therm-api-bulk. 
+w1thermsensor PR \#120 shows ~4.5x speedup from sequential to bulk for 5 sensors \cite{w1thermsensor_pr120} and will be used as a sanity check for rs1wire.
+
+A handful of potential threats to the experiment's validity have been identified prior to execution; Table~\ref{tab:threats} lists each one and how it is addressed.
+
+\begin{table}[!ht]
+\caption{Threats to Validity}
+\begin{center}
+\footnotesize
+\begin{tabular}{|p{3.9cm}|p{3.9cm}|}
+\hline
+\textbf{Threat} & \textbf{Mitigation} \\
+\hline
+Rust and Python harnesses run as separate processes, so their cells are not interleaved in one shuffle & Blocks run in py, rs, rs, py order so slow drift does not align with one language \\
+\hline
+Single board, single bus, at most 10 sensors; results may not generalize to larger buses or other masters (e.g.\ DS2482 I$^2$C bridges) & None; claims are limited to the tested configuration \\
+\hline
+Bulk semantics and bus mutex behavior depend on the kernel version & Kernel version recorded with every result; behavior checked against the `rpi-6.18.y` source \\
+\hline
+Room temperature drifts across runs & Seeded random cell order and alternating blocks spread drift across methods \\
+\hline
+\end{tabular}
+\label{tab:threats}
+\end{center}
+\end{table}
+
+\section{Proposed System \& Architecture}
+
+\section{Results}
 
 
 \subsection{Figures and Tables}\label{FAT}
 \paragraph{Positioning Figures and Tables} Place figures and tables at the top and 
-bottom of columns. Avoid placing them in the middle of columns. Large 
-figures and tables may span across both columns. Figure captions should be 
-below the figures; table heads should appear above the tables. Insert 
-figures and tables after they are cited in the text. Use the abbreviation 
+bottom of columns.
+Avoid placing them in the middle of columns.
+Large 
+figures and tables may span across both columns.
+Figure captions should be 
+below the figures; table heads should appear above the tables.
+Insert 
+figures and tables after they are cited in the text.
+Use the abbreviation 
 ``Fig.~\ref{fig}'', even at the beginning of a sentence.
 
-\begin{table}[htbp]
-\caption{Table Type Styles}
+Tables~\ref{tab:seq} and~\ref{tab:bulk} summarize each (method, $N$) cell over all recorded trials.
+Wall-clock time is reported as the median with the interquartile range in brackets; the other timings are medians.
+For bulk methods, Trig. and Read are the trigger and readout phases.
+Failed reads are totals across all trials.
+
+\begin{table}[!ht]
+\caption{Sequential Polling Results}
 \begin{center}
-\begin{tabular}{|c|c|c|c|}
+\footnotesize
+\begin{tabularx}{\columnwidth}{|c|Y|Y|Y|}
 \hline
-\textbf{Table}&\multicolumn{3}{|c|}{\textbf{Table Column Head}} \\
-\cline{2-4} 
-\textbf{Head} & \textbf{\textit{Table column subhead}}& \textbf{\textit{Subhead}}& \textbf{\textit{Subhead}} \\
+\textbf{$N$} & \textbf{Wall (s)} & \textbf{CPU (s)} & \textbf{Failed reads} \\
 \hline
-copy& More table copy$^{\mathrm{a}}$& &  \\
+\multicolumn{4}{|l|}{`w1thermsensor-seq`} \\
 \hline
-\multicolumn{4}{l}{$^{\mathrm{a}}$Sample of a Table footnote.}
-\end{tabular}
-\label{tab1}
+1 & -- & -- & -- \\
+\hline
+2 & -- & -- & -- \\
+\hline
+5 & -- & -- & -- \\
+\hline
+10 & -- & -- & -- \\
+\hline
+\multicolumn{4}{|l|}{`w1-therm-api-seq`} \\
+\hline
+1 & -- & -- & -- \\
+\hline
+2 & -- & -- & -- \\
+\hline
+5 & -- & -- & -- \\
+\hline
+10 & -- & -- & -- \\
+\hline
+\multicolumn{4}{|l|}{`rs1wire-seq`} \\
+\hline
+1 & -- & -- & -- \\
+\hline
+2 & -- & -- & -- \\
+\hline
+5 & -- & -- & -- \\
+\hline
+10 & -- & -- & -- \\
+\hline
+\end{tabularx}
+\label{tab:seq}
+\end{center}
+\end{table}
+
+\begin{table}[!ht]
+\caption{Bulk Polling Results}
+\begin{center}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabularx}{\columnwidth}{|c|>{\hsize=1.4\hsize}Y|>{\hsize=0.9\hsize}Y|>{\hsize=0.9\hsize}Y|>{\hsize=0.9\hsize}Y|>{\hsize=0.9\hsize}Y|}
+\hline
+\textbf{$N$} & \textbf{Wall (s)} & \textbf{Trig. (s)} & \textbf{Read (s)} & \textbf{CPU (s)} & \textbf{Failed} \\
+\hline
+\multicolumn{6}{|l|}{`w1-therm-api-bulk`} \\
+\hline
+1 & -- & -- & -- & -- & -- \\
+\hline
+2 & -- & -- & -- & -- & -- \\
+\hline
+5 & -- & -- & -- & -- & -- \\
+\hline
+10 & -- & -- & -- & -- & -- \\
+\hline
+\multicolumn{6}{|l|}{`rs1wire-bulk`} \\
+\hline
+1 & -- & -- & -- & -- & -- \\
+\hline
+2 & -- & -- & -- & -- & -- \\
+\hline
+5 & -- & -- & -- & -- & -- \\
+\hline
+10 & -- & -- & -- & -- & -- \\
+\hline
+\end{tabularx}
+\label{tab:bulk}
 \end{center}
 \end{table}
 
@@ -129,30 +792,38 @@ copy& More table copy$^{\mathrm{a}}$& &  \\
 \label{fig}
 \end{figure}
 
-Figure Labels: Use 8 point Times New Roman for Figure labels. Use words 
+Figure Labels: Use 8 point Times New Roman for Figure labels.
+Use words 
 rather than symbols or abbreviations when writing Figure axis labels to 
-avoid confusing the reader. As an example, write the quantity 
-``Magnetization'', or ``Magnetization, M'', not just ``M''. If including 
-units in the label, present them within parentheses. Do not label axes only 
-with units. In the example, write ``Magnetization (A/m)'' or ``Magnetization 
+avoid confusing the reader.
+As an example, write the quantity 
+``Magnetization'', or ``Magnetization, M'', not just ``M''.
+If including 
+units in the label, present them within parentheses.
+Do not label axes only 
+with units.
+In the example, write ``Magnetization (A/m)'' or ``Magnetization 
 \{A[m(1)]\}'', not just ``A/m''. Do not label axes with a ratio of 
-quantities and units. For example, write ``Temperature (K)'', not 
+quantities and units.
+For example, write ``Temperature (K)'', not 
 ``Temperature/K''.
 
 
-\section*{Discussion}
+\section{Discussion}
 
-\section*{Conclusion}
+\section{Conclusion}
 
 Be sure that the 
 symbols in your equation have been defined before or immediately following 
-the equation. Use ``\eqref{eq}'', not ``Eq.~\eqref{eq}'' or ``equation \eqref{eq}'', except at 
+the equation.
+Use ``\eqref{eq}'', not ``Eq.~\eqref{eq}'' or ``equation \eqref{eq}'', except at 
 the beginning of a sentence: ``Equation \eqref{eq} is . . .''
 
 \section*{Acknowledgment}
 
 The author would like to thank all contributors and reviewers for their valuable feedback and support.
-Might acknowledge Professor Ashar here? Not sure if he gets his own spot in the author's list or just an acknowledgment as an advisor.
+Might acknowledge Professor Ashar here?
+Not sure if he gets his own spot in the author's list or just an acknowledgment as an advisor.
 \nocite{*} % list every references.bib entry; remove once the text \cite{}s its sources
 \bibliographystyle{IEEEtran}
 \bibliography{IEEEabrv,references}
