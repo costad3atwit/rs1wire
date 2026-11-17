@@ -143,12 +143,12 @@ As such there are several Python libraries available for interacting with 1-Wire
 The de facto standard Python library packaged with Raspberry Pi OS, `w1thermsensor`, reads sensors one at a time in released versions \cite{w1thermsensor}. 
 This results in a cost of approximately 750 ms (12-bit conversion) per sensor \cite{ds18b20_datasheet}, so N sensors cost approximately N conversion times. 
 This notably ignores the update to the linux kernel which supports bulk reading \cite{kernel_w1_therm_docs}. 
-Users have requested bulk read functionality (w1thermsensor issue \#115), and PR \#120 implements it but remains unmerged \cite{w1thermsensor_pr120}. 
+Users have requested bulk read functionality (w1thermsensor issue \#115), and pull request (PR) \#120 implements it but remains unmerged \cite{w1thermsensor_pr120}. 
 Other less prolific Python modules do utilize this kernel feature, but none of them prevent stale reads, which can return trigger-time values hours later with no expiry \cite{kernel_w1_therm_abi}. 
 This is a hazard for monitoring and control loops, as it can result in silent stale or wrong values, which are worse than errors. 
 The existing bulk consumers (w1-therm-api \cite{w1_therm_api}, wb-mqtt-w1 \cite{wb_mqtt_w1}) do not prevent this at the API level. 
 This is a significant gap because multi-sensor setups are the main draw of the 1-Wire protocol, and they scale linearly in read latency under sequential reads. 
-Additionally, generic failure values (w1-therm-api returns `None` for every failure) hide the cause of the failure, making it difficult to diagnose issues such as wiring problems, CRC errors, power-on resets, or missing drivers.
+Additionally, generic failure values (w1-therm-api returns `None` for every failure) hide the cause of the failure, making it difficult to diagnose issues such as wiring problems, cyclic redundancy check (CRC) errors, power-on resets, or missing drivers.
 
 \subsection{Scope}
 
@@ -174,89 +174,74 @@ The following subsections summarize the relevant work, organized by programming 
 
 \subsection{Python}
 
-\textbf{w1thermsensor} (Timo Furrer; PyPI 2.3.0, Sep 27 2023) \cite{w1thermsensor}
+\textbf{w1thermsensor}
 
-\begin{itemize}
-\item De facto standard; packaged in Raspberry Pi OS [VERIFY - cite it]
-\item Reads `w1\_slave` per sensor; independent blocking file I/O
-\item No `therm\_bulk\_read` in any released version (verified by grepping tagged releases still need to cite version tags checked)
-\item Documented multi-sensor pattern is a sequential loop of `get\_temperature()`
-\item CRC checking implemented correctly; the gap is the missing bulk path, not carelessness
-\item Ships `AsyncW1ThermSensor`; concurrency does not help on one bus (see Background, bus mutex)
-\end{itemize}
+The most widely used Python library for this task is w1thermsensor by Timo Furrer, whose latest release on the Python Package Index (PyPI) is version 2.3.0, published September 27, 2023 \cite{w1thermsensor}.
+It is the de facto standard and is packaged in Raspberry Pi OS [VERIFY - cite it].
+It reads each sensor's `w1\_slave` file independently, using blocking file input/output (I/O).
+No released version uses `therm\_bulk\_read` [VERIFY: verified by grepping tagged releases; still need to cite the version tags checked], and the documented multi-sensor pattern is a sequential loop of `get\_temperature()` calls.
+Its CRC checking is implemented correctly, so the gap is the missing bulk path, not carelessness.
+The library also ships an `AsyncW1ThermSensor` class, but concurrency does not help on a single bus because of the kernel's bus mutex (Section~\ref{sec:w1}).
 
-\textbf{w1thermsensor PR \#120}, ``Add bulk read temperature method'' (opened Feb 13 2025, unmerged) \cite{w1thermsensor_pr120}
+\textbf{w1thermsensor PR \#120}
 
-\begin{itemize}
-\item Closes issue \#115 (users requesting bulk read): evidence of demand
-\item Author-reported: 5 sensors, 12-bit, ~4.02 s to ~0.90 s; a user reported 7 sensors ~4.8 s to ~0.8 s (Feb 2026)
-\item Informal, unreviewed numbers: use as sanity check on expected effect size, not as a result
-\end{itemize}
+Bulk reading has been proposed for w1thermsensor in PR \#120, ``Add bulk read temperature method,'' which was opened on February 13, 2025 and remains unmerged \cite{w1thermsensor_pr120}.
+The PR closes issue \#115, in which users requested bulk reads, which is evidence of demand for the feature.
+Its author reports that reading 5 sensors at 12-bit resolution dropped from approximately 4.02~s to 0.90~s, and a user later reported 7 sensors dropping from approximately 4.8~s to 0.8~s (February 2026).
+These numbers are informal and unreviewed, so this work uses them only as a sanity check on the expected effect size, not as a result.
 
-\textbf{w1-therm-api} (troxel; PyPI) \cite{w1_therm_api}
+\textbf{w1-therm-api}
 
-\begin{itemize}
-\item Genuine bulk read utilizing Linux sysfs: `start\_conversion()` writes `trigger`, `wait\_for\_conversion()` polls every 5 ms, `read\_temperatures()` reads each `temperature` file
-\item No freshness enforcement:
-  \begin{itemize}
-  \item `read\_temperatures()` without a trigger silently does sequential per-sensor conversions
-  \item Reading long after a trigger silently returns trigger-time values
-  \item Partial reads then `read\_temperatures()` silently mix stale bulk and fresh values
-  \end{itemize}
-\item Every failure (missing sensor, CRC, unreadable file, power-on value) returns `None`; trigger failures only printed
-\item Falls back to `w1\_slave` on invalid/`85000`; per kernel source that second access starts a fresh conversion, silently adding ~one conversion time [VERIFY - grab kernel source w1\_therm.c line numbers to cite]
-\item Treats every 85000 as power-on reset (discards genuine 85 C)
-%\item [VERIFY doublecheck this] Requires Python 3.10+ in practice despite README claiming 3.7+ (PEP 604 annotations)
-\item Small/new: 3 commits, 0 stars
-\end{itemize}
+w1-therm-api by troxel, also published on PyPI, implements a genuine bulk read through the Linux sysfs interface \cite{w1_therm_api}.
+Its `start\_conversion()` writes `trigger`, `wait\_for\_conversion()` polls every 5~ms, and `read\_temperatures()` reads each sensor's `temperature` file.
+However, it does not enforce freshness.
+Calling `read\_temperatures()` without a trigger silently performs sequential per-sensor conversions, and reading long after a trigger silently returns trigger-time values.
+Reading some sensors and then calling `read\_temperatures()` silently mixes stale bulk values with fresh ones.
+Every failure, whether a missing sensor, a CRC error, an unreadable file, or a power-on value, returns `None`, and trigger failures are only printed.
+When a `temperature` read is invalid or equals `85000`, the library falls back to `w1\_slave`; per the kernel source, that second access starts a fresh conversion, silently adding approximately one conversion time [VERIFY - grab kernel source w1\_therm.c line numbers to cite].
+It also treats every `85000` as a power-on reset, which discards genuine 85~$^\circ$C readings.
+%[VERIFY doublecheck this] Requires Python 3.10+ in practice despite README claiming 3.7+ (PEP 604 annotations)
+The project is small and new, with 3 commits and 0 stars.
 
-\textbf{Python performance in systems/hardware code} (motivation for a compiled core)
+\textbf{Python performance in systems and hardware code}
 
-\begin{itemize}
-\item Rust/C/C++ comparably fast, generally outperform Python \cite{bugden2022safety}
-\item On ESP32, MicroPython is orders of magnitude slower than compiled languages (e.g. CRC-32 ~986 us vs ~3 us C vs ~6.6 us Rust) \cite{plauska2022performance}
-\item Pure-Python reimplementations of C-backed routines: 6x to 17,000x slower \cite{ding2026stdlib}
-\item For this workload the ~750 ms conversion dominates \cite{ds18b20_datasheet}. Language speed only matters in per-sensor overhead
-\end{itemize}
+Work on Python performance in systems and hardware code motivates a compiled core.
+Rust, C, and C++ perform comparably and generally outperform Python \cite{bugden2022safety}.
+On the ESP32, MicroPython is orders of magnitude slower than compiled languages; for example, a CRC-32 computation takes approximately 986~$\mu$s in MicroPython versus 3~$\mu$s in C and 6.6~$\mu$s in Rust \cite{plauska2022performance}.
+Pure-Python reimplementations of C-backed routines are 6x to 17,000x slower \cite{ding2026stdlib}.
+For this workload, however, the approximately 750~ms conversion time dominates \cite{ds18b20_datasheet}, so language speed only matters in the per-sensor overhead.
 
 \subsection{Rust}
 
-\textbf{embedded-hal 1-Wire crates} (fuchsnj/one-wire-bus, fuchsnj/ds18b20, others on crates.io `onewire` keyword) \cite{fuchsnj_one_wire_bus, fuchsnj_ds18b20, crates_io_onewire}
+Prior work has examined the value and open problems of Rust in embedded systems \cite{sharma2024rust} and surveyed its embedded ecosystem \cite{vandervelden2024overview}.
 
-\begin{itemize}
-\item Designed for bare-metal MCUs; implement 1-Wire timing by toggling GPIO with delays
-\item Assume no OS preemption mid-pulse; that assumption breaks in Linux userspace \cite{adam2021performance}
-\item Rust embedded community frames 1-Wire as a bit-banging HAL problem (embedded-hal issue \#54) \cite{embedded_hal_issue54}
-\end{itemize}
+\textbf{embedded-hal 1-Wire crates}
 
-\textbf{w1\_therm\_reader} (gaetronik, v0.1.0, Sep 1 2019) \cite{w1_therm_reader}
+The existing Rust 1-Wire crates, such as fuchsnj's one-wire-bus and ds18b20 and others listed under the crates.io `onewire` keyword, build on embedded-hal \cite{fuchsnj_one_wire_bus, fuchsnj_ds18b20, crates_io_onewire}.
+They are designed for bare-metal microcontrollers and implement 1-Wire timing by toggling a general purpose input/output (GPIO) pin with delays.
+This assumes the program is never preempted by an OS mid-pulse, an assumption that breaks in Linux userspace \cite{adam2021performance}.
+The Rust embedded community likewise frames 1-Wire as a bit-banging hardware abstraction layer (HAL) problem, as in embedded-hal issue \#54 \cite{embedded_hal_issue54}.
 
-\begin{itemize}
-\item Only Rust crate found that reads kernel `w1\_slave`
-\item `temp.parse().unwrap()`: malformed `t=` line panics despite `io::Result` return type
-\item CRC check is only the kernel's `crc=YES` string; no recompute
-\item README example references a nonexistent function
-\item No discovery, bulk read, resolution/conv\_time, 85 C handling; sysfs root hardcoded
-\item Built on nom 5; unchanged since release, 0 stars
-\end{itemize}
+\textbf{w1\_therm\_reader}
 
-\textbf{Rust in embedded generally}: value and open problems \cite{sharma2024rust}; ecosystem overview \cite{vandervelden2024overview}
+w1\_therm\_reader by gaetronik (version 0.1.0, September 1, 2019) is the only Rust crate found that reads the kernel's `w1\_slave` file \cite{w1_therm_reader}.
+Its parser calls `temp.parse().unwrap()`, so a malformed `t=` line panics despite the function's `io::Result` return type.
+Its CRC check only inspects the kernel's `crc=YES` string and never recomputes the CRC.
+Its README example references a nonexistent function.
+It provides no discovery, bulk reads, resolution or conv\_time configuration, or 85~$^\circ$C handling, and its sysfs root is hardcoded.
+It is built on nom 5, has been dormant since its release apart from a 2026 dependency bump, and has 0 stars.
 
-\subsection{Other languages / applications}
+\subsection{Other languages and applications}
 
-\textbf{wb-mqtt-w1} (Wiren Board, C++) \cite{wb_mqtt_w1}
+\textbf{wb-mqtt-w1}
 
-\begin{itemize}
-\item Detects `therm\_bulk\_read` per bus master, uses bulk when supported
-\item Application daemon (MQTT), not a reusable library
-\end{itemize}
+Wiren Board's wb-mqtt-w1, written in C++, detects `therm\_bulk\_read` support on each bus master and uses bulk reads where supported \cite{wb_mqtt_w1}.
+However, it is an application daemon that publishes readings over Message Queuing Telemetry Transport (MQTT), not a reusable library.
 
-\subsection{Python bindings for Rust (only if stretch goal is built)}
+\subsection{Python bindings for Rust [only if stretch goal is built]}
 
-\begin{itemize}
-\item PyO3 gives real speedups but leaves per-call FFI overhead (~0.14 ms/call plus constant base) \cite{amaral2025rust}
-\item Speedup contingent on workload shape \cite{harding2025improving}
-\end{itemize}
+Rust extensions built with PyO3 give real speedups but leave a per-call foreign function interface (FFI) overhead of approximately 0.14~ms per call plus a constant base \cite{amaral2025rust}.
+Whether that speedup materializes depends on the shape of the workload \cite{harding2025improving}.
 
 \subsection{Gap summary}
 
@@ -306,81 +291,88 @@ Software (bit-banged) masters are common, but the precise timing of the protocol
   \caption{DS18B20 waterproof probe. Image from \cite{voltaat_ds18b20}.}
   \label{fig:ds18b20}
 \end{figure}
-
+The sensor chosen for testing with this work is the DS18B20 because of its low cost and well established use in the 1-wire community.
+As stated by the manufacturer, the following are qualities of the sensor.
 \begin{itemize}
-\item Family code `0x28` \cite{ds18b20_datasheet}
-\item Range -55 to +125 C; +/-0.5 C accuracy from -10 to +85 C \cite{ds18b20_datasheet}
-\item Configurable resolution 9-12 bits; max conversion time 93.75 / 187.5 / 375 / 750 ms \cite{ds18b20_datasheet}
-\item Convert T command starts conversion; result read from 9-byte scratchpad \cite{ds18b20_datasheet}
-\item Scratchpad byte 8 is Dallas/Maxim CRC-8 over bytes 0-7 (polynomial $x^8 + x^5 + x^4 + 1$) \cite{ds18b20_datasheet}
-\item Power-on reset value of the temperature register is +85 C \cite{ds18b20_datasheet}; indistinguishable from a genuine 85 C reading
-\item Resolution lives in scratchpad RAM (lost on power off unless copied to EEPROM) \cite{ds18b20_datasheet}
-\item Convert T can be addressed to all devices at once (Skip ROM), which is what makes bulk conversion possible \cite{ds18b20_datasheet}
+\item \textbf{Device type:} Every DS18B20 has the family code `0x28` in its ROM ID, which identifies it as a DS18B20 among other devices on a shared bus \cite{ds18b20_datasheet}.
+\item \textbf{Range and accuracy:} It measures temperatures from $-55$ to $+125$~$^\circ$C and is accurate to within $\pm0.5$~$^\circ$C between $-10$ and $+85$~$^\circ$C \cite{ds18b20_datasheet}.
+\item \textbf{How a reading works:} The master sends a Convert T command to start a measurement (a ``conversion''), then reads the result from the scratchpad, a 9-byte block of on-chip memory that holds the temperature and the sensor's settings \cite{ds18b20_datasheet}.
+\item \textbf{Resolution vs. speed:} The resolution can be set from 9 to 12 bits, which gives steps of 0.5, 0.25, 0.125, or 0.0625~$^\circ$C. Each extra bit doubles the maximum conversion time, from 93.75~ms at 9 bits through 187.5 and 375~ms to 750~ms at 12 bits \cite{ds18b20_datasheet}.
+\item \textbf{Converting many sensors at once:} The master can send Convert T to every device on the bus at once using the Skip ROM command, so all sensors convert in parallel. This is what makes bulk conversion possible \cite{ds18b20_datasheet}.
+\item \textbf{Power-on value:} Until its first conversion after power-up, the temperature register reads $+85$~$^\circ$C \cite{ds18b20_datasheet}. This value cannot be distinguished from a genuine 85~$^\circ$C reading.
+\item \textbf{Resolution is not saved by default:} The resolution setting lives in the scratchpad's random access memory (RAM), so it is lost when power is removed unless it is copied to the sensor's electrically erasable programmable read-only memory (EEPROM) \cite{ds18b20_datasheet}.
 \end{itemize}
 
-\subsection{Linux w1 subsystem}
+\subsection{Linux w1 subsystem}\label{sec:w1}
 
-\begin{itemize}
-\item `w1-gpio`: bus master driver that bit-bangs a GPIO pin from kernel space
-  \begin{itemize}
-  \item Enabled on Raspberry Pi via `dtoverlay=w1-gpio` in `/boot/firmware/config.txt` (default GPIO4; `gpiopin=` to change) `[VERIFY + cite RPi config docs]`
-  \end{itemize}
-\item `w1\_therm`: slave driver for temperature sensors \cite{kernel_w1_therm_docs}
-\item sysfs layout:
-  \begin{itemize}
-  \item `/sys/bus/w1/devices/w1\_bus\_masterN/` with `w1\_master\_slaves`, `w1\_master\_slave\_count`, `w1\_master\_search`, `therm\_bulk\_read`
-  \item `/sys/bus/w1/devices/28-xxxxxxxxxxxx/` (symlink into its bus master) with `w1\_slave`, `temperature`, `resolution`, `conv\_time`, others \cite{kernel_w1_therm_abi}
-  \end{itemize}
-\item `w1\_slave` format (two lines):
-  \begin{itemize}
-  \item Line 1: 9 scratchpad bytes, `: crc=XX YES\textbar{}NO` \cite{kernel_w1_therm_docs}
-  \item Line 2: bytes of the last scratchpad that passed CRC (not necessarily the current one), then `t=\textless{}millidegrees C\textgreater{}`
-  \end{itemize}
-\item Reading `w1\_slave` or `temperature` with no pending bulk result triggers a single-sensor conversion and blocks ~conv\_time \cite{kernel_w1_therm_abi}
-\item `therm\_bulk\_read` (per bus master):
-  \begin{itemize}
-  \item Write `trigger`: Convert T to all sensors on the bus \cite{kernel_w1_therm_docs}
-  \item Write is synchronous: kernel sleeps for the longest `conv\_time` on the bus before returning (from `w1\_therm.c`, rpi-6.18.y) `[VERIFY line refs]`
-  \item Read: `-1` conversion in progress, `1` complete with unread results, `0` nothing pending \cite{kernel_w1_therm_docs, kernel_w1_therm_abi}
-  \item Default permissions 0644 root: unprivileged users cannot trigger
-  \end{itemize}
-\item Stale-read mechanism (kernel source, rpi-6.18.y):
-  \begin{itemize}
-  \item Each sensor has a pending-result flag set by the bulk trigger
-  \item `w1\_slave\_show` / `temperature\_show`: if flag is 1, read scratchpad and clear it; if 0, call `convert\_t()` (fresh conversion)
-  \item No expiry: a result read hours later is still the trigger-time value
-  \item Consequence 1: late read returns stale data silently \cite{kernel_w1_therm_abi}
-  \item Consequence 2: second read of same sensor silently costs a new full conversion
-  \end{itemize}
-\item Read failures: kernel returns an empty file rather than an error code
-\item Bus mutex (rpi-6.18.y): without strong pull-up (externally powered), held through the conversion sleep, so concurrent per-sensor conversions on one bus serialize; with strong pull-up it is released before sleeping `[VERIFY on hardware: async vs. sequential timing]`
-  \begin{itemize}
-  \item Implication: threads/asyncio cannot recover the bulk advantage on a single externally powered bus
-  \end{itemize}
-\end{itemize}
+On Linux, 1-Wire support is split between a bus master driver and slave drivers.
+On the Raspberry Pi the bus master is `w1-gpio`, which bit-bangs a GPIO pin from kernel space and is enabled by adding `dtoverlay=w1-gpio` to `/boot/firmware/config.txt` (GPIO4 by default, or another pin via `gpiopin=`) `[VERIFY + cite RPi config docs]`.
+Temperature sensors are handled by the `w1\_therm` slave driver \cite{kernel_w1_therm_docs}.
+Both drivers expose their devices as directories and files in sysfs (Fig.~\ref{fig:w1_sysfs}).
+Each bus master appears as `/sys/bus/w1/devices/w1\_bus\_masterN/`, which lists the devices found on the bus in `w1\_master\_slaves` and holds the `therm\_bulk\_read` control file.
+Each sensor appears as `/sys/bus/w1/devices/28-xxxxxxxxxxxx/`, named after its family code and serial number, with files including `w1\_slave`, `temperature`, `resolution`, and `conv\_time` \cite{kernel_w1_therm_abi}.
 
-\subsection{Userspace timing on Linux (why not bit-bang in userspace)}
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\columnwidth]{w1_sysfs_hierarchy.pdf}
+  \caption{Simplified w1 sysfs hierarchy for one bus master and one DS18B20. Entries under `/sys/bus/w1/devices/` are symlinks into `/sys/devices/`.}
+  \label{fig:w1_sysfs}
+\end{figure}
 
-\begin{itemize}
-\item Userspace worst-case GPIO latency ~147-160 us vs. kernel-space ~67-76 us on Pi 3 / BeagleBone \cite{adam2021performance} `[VERIFY figures]`
-\item PREEMPT\_RT brings jitter below ~50 us \cite{adam2021real}
-\item Even RT Linux shows tens of us jitter; sub-us needs interrupt isolation \cite{zhou2025towards} (preprint)
-\item Real-time tuning needs isolcpus, IRQ affinity, tickless operation \cite{madden2019challenges}
-\item 1-Wire slots are tens of us \cite{Analog_Devices_1w_software}, so these latencies are the same order as the slot timing
-\item Caveat to state: kernel `w1-gpio` also bit-bangs; kernel space reduces but does not eliminate the problem, and rs1wire inherits it
-\end{itemize}
+Reading a sensor's `w1\_slave` file returns two lines \cite{kernel_w1_therm_docs}:
+{\footnotesize
+\begin{verbatim}
+$ cat /sys/bus/w1/devices/28-xxxxxxxxxxxx/w1_slave
+72 01 4b 46 7f ff 0e 10 57 : crc=57 YES
+72 01 4b 46 7f ff 0e 10 57 t=23125
+\end{verbatim}
+}
+\noindent
+The first line holds the 9 scratchpad bytes, the CRC the kernel computed over the first eight, and its verdict (`YES` or `NO`); the second repeats the last scratchpad that passed the CRC check, which is not necessarily the current one, and gives the temperature in millidegrees Celsius (here 23.125~$^\circ$C).
+With no bulk result pending, reading `w1\_slave` or `temperature` starts a conversion on that sensor alone and blocks for approximately its `conv\_time` \cite{kernel_w1_therm_abi}.
+A failed read returns an empty file rather than an error code.
 
-\subsection{Raspberry Pi 5 / RP1 specifics (primary sources only, say so)}
+Bulk conversion is controlled per bus master through `therm\_bulk\_read`.
+Writing `trigger` sends Convert T to every sensor on the bus \cite{kernel_w1_therm_docs}, and the write returns only after the kernel has slept for the longest `conv\_time` on the bus (from `w1\_therm.c`, rpi-6.18.y) `[VERIFY line refs]`.
+Reading it returns `-1` while a conversion is in progress, `1` when it is complete but some results are unread, and `0` when nothing is pending \cite{kernel_w1_therm_docs, kernel_w1_therm_abi}.
+By default it is mode 0644, owned by root, so unprivileged users cannot trigger a conversion.
+The trigger sets a pending-result flag on each sensor; the next read of `w1\_slave` or `temperature` returns that result and clears the flag, while a read with no flag set starts a fresh conversion (`w1\_slave\_show` and `temperature\_show`, rpi-6.18.y).
+The flag never expires, so a late read silently returns the trigger-time value, even hours later \cite{kernel_w1_therm_abi}, and a second read of the same sensor silently costs a new full conversion.
 
-\begin{itemize}
-\item GPIO moved off the SoC to the RP1 I/O controller over PCIe; inherently higher latency than on-die GPIO \cite{upton_rp1}
-\item Most PIOLib operations take at least 10 us \cite{elwell_piolib}
-\item Direct register access libraries (pigpio, RPi.GPIO) broke on Pi 5 \cite{pigpio_issue589}
-\item RP1 registers proxied via firmware mailbox in some kernel paths \cite{rpi_linux_pr6470} `[VERIFY context]`
-\item Earlier w1-gpio instability on Pi 5 fixed from kernel 6.6.28+ `[VERIFY: replace forum source with kernel commit/changelog]`
-\item `[VERIFY]` ~1 us direct-write figure from RP1 datasheet before quoting
-\item Open note: Raspberry Pi docs inconsistent on PCIe generation (Gen 2 x4 vs. Gen 3); avoid stating it or cite carefully
-\end{itemize}
+Concurrency cannot replace bulk conversion either.
+On an externally powered bus (no strong pull-up), the rpi-6.18.y kernel holds the bus mutex through the conversion sleep, so threads or asyncio issuing per-sensor conversions on one bus still run one after another; with a strong pull-up the mutex is released before sleeping `[VERIFY on hardware: async vs. sequential timing]`.
+
+\subsection{Userspace timing on Linux}
+
+Bit-banging 1-Wire from a userspace program on Linux is unreliable because the scheduler can delay the program at any moment.
+On a Raspberry Pi 3 and a BeagleBone, worst-case GPIO latency measured approximately 147--160~$\mu$s from userspace versus 67--76~$\mu$s from kernel space \cite{adam2021performance} `[VERIFY figures]`.
+PREEMPT\_RT brings jitter below approximately 50~$\mu$s \cite{adam2021real}, but even real-time (RT) Linux shows tens of microseconds of jitter, and a recent preprint reports that sub-microsecond response requires interrupt isolation \cite{zhou2025towards}.
+Real-time tuning on Linux also requires isolating CPU cores (`isolcpus`), setting interrupt request (IRQ) affinity, and tickless operation \cite{madden2019challenges}.
+Because 1-Wire time slots last tens of microseconds \cite{Analog_Devices_1w_software}, these latencies are on the same order as the slot timing.
+The kernel's `w1-gpio` driver also bit-bangs, so running in kernel space reduces the problem but does not eliminate it, and rs1wire inherits whatever timing errors remain.
+
+\subsection{Raspberry Pi 5 and RP1}
+
+The Raspberry Pi 5 changes how GPIO is wired, and little peer-reviewed work covers it yet, so this subsection relies on primary sources: Raspberry Pi announcements and GitHub issues, pull requests, and repositories.
+GPIO has moved off the system on a chip (SoC) to the RP1 I/O controller, which is connected over Peripheral Component Interconnect Express (PCIe), so it inherently has higher latency than GPIO on the SoC itself \cite{upton_rp1}.
+Most operations through PIOLib, Raspberry Pi's userspace library for the RP1's programmable I/O, take at least 10~$\mu$s \cite{elwell_piolib}.
+Libraries that access GPIO registers directly, such as pigpio and RPi.GPIO, broke on the Pi 5 \cite{pigpio_issue589}, and in some kernel paths RP1 registers are accessed through a firmware mailbox \cite{rpi_linux_pr6470} `[VERIFY context]`.
+Earlier kernels also had a w1-gpio instability on the Pi 5 that was fixed from kernel 6.6.28 onward `[VERIFY: replace forum source with kernel commit/changelog]`.
+% [VERIFY] ~1 us direct-write figure from RP1 datasheet before quoting
+% Open note: Raspberry Pi docs inconsistent on PCIe generation (Gen 2 x4 vs. Gen 3); avoid stating it or cite carefully
+
+Fig.~\ref{fig:rpi5_pinout} shows the Raspberry Pi 5's 40-pin J8 GPIO header, where external hardware such as the 1-Wire bus connects to the board \cite{galindo2024rpi5pinout}.
+Each pin has two numbers: its physical position on the header (1 to 40, with odd numbers in the left column and even numbers in the right) and, for signal pins, its GPIO number, which is the number software and device tree overlays use.
+The two numbering schemes are different; for example, GPIO4 is physical pin 7.
+Not every pin is a GPIO, and the colors mark each pin's role: power at 3.3~V or 5~V (red), ground (black), general-purpose pins (green), and GPIOs that can also serve other buses (blue and purple).
+This work connects the 1-Wire data line to GPIO4, the default pin for the `w1-gpio` overlay (Section~\ref{sec:w1}), and powers the sensors from the header's 3.3~V and ground pins (Fig.~\ref{fig:circuit}).
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.8\columnwidth]{RPI5_PINOUT.png}
+  \caption{Raspberry Pi 5 J8 GPIO header pinout, from \cite{galindo2024rpi5pinout}. The 1-Wire bus in this work uses GPIO4 (physical pin 7).}
+  \label{fig:rpi5_pinout}
+\end{figure}
 
 \section{Methodology}
 
@@ -623,7 +615,7 @@ The same CSV file is written to for all methods to ensure that results are inter
 The methods are chosen in pairs so that each comparison changes as little as possible. 
 Comparing w1-therm-api's sequential and bulk methods isolates the effect of bulk conversion within a single codebase, while comparing w1thermsensor's sequential reads against either bulk method shows the same effect against the de facto standard library. 
 With the architecture held fixed, w1-therm-api-bulk against rs1wire-bulk isolates the language and library effect, and the three sequential methods compare per-call overhead across libraries when every read pays a full conversion. 
-If the optional asynchronous w1thermsensor method is run, comparing it with bulk reads tests whether concurrency can close the gap; the bus mutex described in Section~\ref{sec:background} predicts that it cannot on an externally powered bus.
+If the optional asynchronous w1thermsensor method is run, comparing it with bulk reads tests whether concurrency can close the gap; the bus mutex described in Section~\ref{sec:w1} predicts that it cannot on an externally powered bus.
 
 Each method is measured at fixed sensor counts of $N = 1, 2, 5,$ and $10$, using the first $N$ sensors by ROM ID in both harnesses. 
 Within each trial, every (method, $N$) cell runs in a seeded random order, and the seed and actual run order are recorded so that slow drift is spread across methods rather than aligned with one. 
