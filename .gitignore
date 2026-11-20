@@ -52,3 +52,6 @@ LaTex/IEEEtran_HOWTO.pdf
 LaTex/rs1wire.fdb_latexmk
 LaTex/rs1wire.fls
 /benchmarks/logs/
+
+# Python bytecode
+__pycache__/
