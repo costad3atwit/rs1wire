@@ -134,7 +134,10 @@ mod tests {
     #[test]
     fn w1_slave_good() {
         let sp = parse_w1_slave(GOOD).unwrap();
-        assert_eq!(sp.bytes, [0x72, 0x01, 0x4b, 0x46, 0x7f, 0xff, 0x0e, 0x10, 0x57]);
+        assert_eq!(
+            sp.bytes,
+            [0x72, 0x01, 0x4b, 0x46, 0x7f, 0xff, 0x0e, 0x10, 0x57]
+        );
         assert_eq!(sp.kernel_crc, 0x57);
         assert!(sp.kernel_ok);
         assert_eq!(sp.millicelsius, 23_125);
@@ -187,7 +190,10 @@ mod tests {
     fn bulk_status_values() {
         assert_eq!(parse_bulk_status("-1\n").unwrap(), BulkStatus::InProgress);
         assert_eq!(parse_bulk_status("0\n").unwrap(), BulkStatus::Idle);
-        assert_eq!(parse_bulk_status("1\n").unwrap(), BulkStatus::CompleteUnread);
+        assert_eq!(
+            parse_bulk_status("1\n").unwrap(),
+            BulkStatus::CompleteUnread
+        );
         for bad in ["", "2\n", "trigger", "-\n", "+1\n"] {
             assert!(parse_bulk_status(bad).is_err(), "{bad:?} parsed");
         }

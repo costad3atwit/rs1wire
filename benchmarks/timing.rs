@@ -55,14 +55,39 @@ use rs1wire::{BulkOptions, BulkStatus, BusMaster, Error, Sensor, W1};
 
 /// Same columns, same order as `FIELDS` in `timing.py`.
 const FIELDS: [&str; 33] = [
-    "run_id", "timestamp_utc", "library", "library_version", "library_source",
-    "method", "read_path", "sensor_count", "bus_sensor_count", "trial",
-    "run_order", "seed", "gap_s",
-    "wall_s", "trigger_s", "wait_s", "readout_s",
-    "cpu_total_s", "cpu_user_s", "cpu_sys_s",
-    "reads_ok", "reads_failed", "error_types",
-    "resolution_bits", "conv_time_ms", "w1_master_search",
-    "kernel", "os", "os_id", "os_version", "python", "rustc", "hostname",
+    "run_id",
+    "timestamp_utc",
+    "library",
+    "library_version",
+    "library_source",
+    "method",
+    "read_path",
+    "sensor_count",
+    "bus_sensor_count",
+    "trial",
+    "run_order",
+    "seed",
+    "gap_s",
+    "wall_s",
+    "trigger_s",
+    "wait_s",
+    "readout_s",
+    "cpu_total_s",
+    "cpu_user_s",
+    "cpu_sys_s",
+    "reads_ok",
+    "reads_failed",
+    "error_types",
+    "resolution_bits",
+    "conv_time_ms",
+    "w1_master_search",
+    "kernel",
+    "os",
+    "os_id",
+    "os_version",
+    "python",
+    "rustc",
+    "hostname",
 ];
 
 const DEFAULT_COUNTS: [usize; 4] = [1, 2, 5, 10];
@@ -96,16 +121,21 @@ type Row = Vec<(&'static str, String)>;
 fn run() -> Result<(), String> {
     let args = Args::parse()?;
     if cfg!(debug_assertions) && !args.allow_debug {
-        return Err("Debug build: timings would not be representative. Build with \
+        return Err(
+            "Debug build: timings would not be representative. Build with \
                     `cargo build --release --example timing`, or pass --allow-debug."
-            .into());
+                .into(),
+        );
     }
     // Set a flag instead of dying, so search is restored and only complete
     // trials are written. Checked between cells.
     for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
         // SAFETY: the handler only stores to an atomic, which is signal safe.
         unsafe {
-            libc::signal(sig, on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t);
+            libc::signal(
+                sig,
+                on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t,
+            );
         }
     }
 
@@ -145,11 +175,20 @@ fn run() -> Result<(), String> {
         .iter()
         .map(|&n| {
             let first = &sensors[..n];
-            (n, vec![
-                ("resolution_bits", joined(first, |s| s.resolution().map(|r| r.bits().to_string()))),
-                ("conv_time_ms", joined(first, |s| s.conv_time().map(|d| d.as_millis().to_string()))),
-                ("bus_sensor_count", bus_count.clone()),
-            ])
+            (
+                n,
+                vec![
+                    (
+                        "resolution_bits",
+                        joined(first, |s| s.resolution().map(|r| r.bits().to_string())),
+                    ),
+                    (
+                        "conv_time_ms",
+                        joined(first, |s| s.conv_time().map(|d| d.as_millis().to_string())),
+                    ),
+                    ("bus_sensor_count", bus_count.clone()),
+                ],
+            )
         })
         .collect();
 
@@ -160,7 +199,10 @@ fn run() -> Result<(), String> {
     println!("  rs1wire {} ({}), {}", lib[1].1, lib[2].1, machine[5].1);
     println!("methods: {}", args.methods.join(", "));
     println!("seed {seed}, gap {:?}s", args.gap);
-    let ids: Vec<String> = sensors[..max_count].iter().map(|s| s.id().to_string()).collect();
+    let ids: Vec<String> = sensors[..max_count]
+        .iter()
+        .map(|s| s.id().to_string())
+        .collect();
     println!("sensors (sorted): {}", ids.join(", "));
 
     // Open the CSV before touching the bus, so a schema mismatch exits
@@ -171,10 +213,17 @@ fn run() -> Result<(), String> {
     // Restored on drop, which also covers an early return or a panic.
     let _search = if sensors.len() >= EXPECTED_SENSORS {
         let guard = SearchGuard::disable(bus.path())?;
-        println!("bus search disabled on {} (was {})", bus.name(), guard.original);
+        println!(
+            "bus search disabled on {} (was {})",
+            bus.name(),
+            guard.original
+        );
         Some(guard)
     } else {
-        println!("{}/{EXPECTED_SENSORS} sensors found: leaving kernel bus search on", sensors.len());
+        println!(
+            "{}/{EXPECTED_SENSORS} sensors found: leaving kernel bus search on",
+            sensors.len()
+        );
         None
     };
     let search = read_attr(&bus.path().join("w1_master_search"));
@@ -207,7 +256,13 @@ fn run() -> Result<(), String> {
                 ("gap_s", format!("{:?}", args.gap)),
                 ("w1_master_search", search.clone()),
             ];
-            row.extend(per_count.iter().find(|(c, _)| *c == n).map(|(_, r)| r.clone()).unwrap_or_default());
+            row.extend(
+                per_count
+                    .iter()
+                    .find(|(c, _)| *c == n)
+                    .map(|(_, r)| r.clone())
+                    .unwrap_or_default(),
+            );
             row.extend(lib.iter().cloned());
             row.extend(machine.iter().cloned());
             row.extend(result);
@@ -220,7 +275,8 @@ fn run() -> Result<(), String> {
             // Written grouped by method (METHODS order), then N.
             rows.sort_by_key(|&(m, n, _)| (m, n));
             for (_, _, row) in &rows {
-                write_row(&mut csv, row).map_err(|e| format!("writing {}: {e}", csv_path.display()))?;
+                write_row(&mut csv, row)
+                    .map_err(|e| format!("writing {}: {e}", csv_path.display()))?;
             }
             csv.flush().map_err(|e| e.to_string())?;
         }
@@ -298,14 +354,20 @@ fn run_cell(bus: &mut BusMaster, sensors: &[Sensor], label: &str, n: usize) -> R
         ("cpu_sys_s", secs(usage.sys)),
         ("reads_ok", ok.to_string()),
         ("reads_failed", errors.len().to_string()),
-        ("error_types", types.into_iter().collect::<Vec<_>>().join(";")),
+        (
+            "error_types",
+            types.into_iter().collect::<Vec<_>>().join(";"),
+        ),
     ];
     row.extend(phases);
     row
 }
 
 fn bulk_pending(bus: &BusMaster) -> bool {
-    matches!(bus.bulk_status(), Ok(BulkStatus::InProgress | BulkStatus::CompleteUnread))
+    matches!(
+        bus.bulk_status(),
+        Ok(BulkStatus::InProgress | BulkStatus::CompleteUnread)
+    )
 }
 
 /// The variant name, plus the I/O error kind for `Io`, so `error_types`
@@ -369,7 +431,10 @@ impl Meter {
 }
 
 fn process_cpu() -> Duration {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
     // SAFETY: `ts` is a valid, writable timespec.
     let rc = unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut ts) };
     if rc != 0 {
@@ -408,8 +473,17 @@ fn joined(sensors: &[Sensor], f: impl Fn(&Sensor) -> rs1wire::Result<String>) ->
 /// which `run()` relies on for printing).
 fn common_env() -> Row {
     let release = os_release();
-    let get = |key: &str| release.get(key).cloned().unwrap_or_else(|| "unknown".into());
-    let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
+    let get = |key: &str| {
+        release
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| "unknown".into())
+    };
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
     let rustc = command_output("rustc", &["--version"])
         .map(|v| format!("{v} ({profile})"))
         .unwrap_or_else(|| format!("unknown ({profile})"));
@@ -421,7 +495,10 @@ fn common_env() -> Row {
         // Python rows record the interpreter here; Rust rows leave it empty.
         ("python", String::new()),
         ("rustc", rustc),
-        ("hostname", read_attr(Path::new("/proc/sys/kernel/hostname"))),
+        (
+            "hostname",
+            read_attr(Path::new("/proc/sys/kernel/hostname")),
+        ),
     ]
 }
 
@@ -433,7 +510,15 @@ fn library_meta() -> Row {
         Some(commit) => {
             let dirty = command_output(
                 "git",
-                &["status", "--porcelain", "--", "src", "Cargo.toml", "Cargo.lock", "benchmarks/timing.rs"],
+                &[
+                    "status",
+                    "--porcelain",
+                    "--",
+                    "src",
+                    "Cargo.toml",
+                    "Cargo.lock",
+                    "benchmarks/timing.rs",
+                ],
             )
             .is_some_and(|s| !s.is_empty());
             format!("git:{commit}{}", if dirty { "-dirty" } else { "" })
@@ -630,7 +715,9 @@ fn write_sysfs(path: &Path, value: &str) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("sudo: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(value.as_bytes()).map_err(|e| e.to_string())?;
+        stdin
+            .write_all(value.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if out.status.success() {
@@ -668,8 +755,7 @@ fn open_csv(path: &Path) -> Result<File, String> {
         .open(path)
         .map_err(|e| format!("opening {}: {e}", path.display()))?;
     if is_new {
-        write_line(&mut f, FIELDS.iter().map(|s| s.to_string()))
-            .map_err(|e| e.to_string())?;
+        write_line(&mut f, FIELDS.iter().map(|s| s.to_string())).map_err(|e| e.to_string())?;
     }
     Ok(f)
 }
@@ -745,7 +831,9 @@ impl Args {
         };
         fn one<T: std::str::FromStr>(flag: &str, v: Vec<String>) -> Result<T, String> {
             match v.as_slice() {
-                [x] => x.parse().map_err(|_| format!("{flag}: invalid value {x:?}")),
+                [x] => x
+                    .parse()
+                    .map_err(|_| format!("{flag}: invalid value {x:?}")),
                 _ => Err(format!("{flag} takes exactly one value")),
             }
         }

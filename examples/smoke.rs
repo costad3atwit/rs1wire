@@ -85,7 +85,10 @@ fn run() -> Result<bool, Box<dyn Error>> {
                 ..
             })
         );
-        all_ok &= check(refused, "individual read refused while a bulk result is pending");
+        all_ok &= check(
+            refused,
+            "individual read refused while a bulk result is pending",
+        );
 
         bus.discard_pending()?;
         all_ok &= check(

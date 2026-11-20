@@ -908,7 +908,11 @@ fn crc8(bytes: &[u8]) -> u8 {
     bytes.iter().fold(0u8, |mut crc, &byte| {
         crc ^= byte;
         for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0x8C } else { crc >> 1 };
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0x8C
+            } else {
+                crc >> 1
+            };
         }
         crc
     })
@@ -1001,7 +1005,8 @@ mod tests {
 
     const A: &str = "28-00000000000a";
     const B: &str = "28-00000000000b";
-    const DS2413: &str = "3a-000000000001";
+    /// Another 1-Wire family (DS2413 switch), which discovery must skip.
+    const OTHER_FAMILY: &str = "3a-000000000001";
     const BUS: &str = "w1_bus_master1";
 
     fn id(s: &str) -> DeviceId {
@@ -1047,7 +1052,13 @@ mod tests {
         ] {
             let err = bad.parse::<DeviceId>().unwrap_err();
             assert!(
-                matches!(err, Error::Parse { kind: ParseErrorKind::DeviceId(_), .. }),
+                matches!(
+                    err,
+                    Error::Parse {
+                        kind: ParseErrorKind::DeviceId(_),
+                        ..
+                    }
+                ),
                 "{bad:?} gave {err:?}"
             );
         }
@@ -1056,7 +1067,10 @@ mod tests {
     #[test]
     fn parse_error_snippet_is_truncated() {
         let long = "x".repeat(1000);
-        let Err(Error::Parse { kind: ParseErrorKind::DeviceId(s), .. }) = long.parse::<DeviceId>()
+        let Err(Error::Parse {
+            kind: ParseErrorKind::DeviceId(s),
+            ..
+        }) = long.parse::<DeviceId>()
         else {
             panic!("expected a device id parse error");
         };
@@ -1090,7 +1104,10 @@ mod tests {
 
     #[test]
     fn read_options_default_rejects_power_on_reset() {
-        assert_eq!(ReadOptions::default().power_on_reset, PowerOnResetPolicy::Reject);
+        assert_eq!(
+            ReadOptions::default().power_on_reset,
+            PowerOnResetPolicy::Reject
+        );
     }
 
     // From a w1_slave line: "72 01 4b 46 7f ff 0e 10 57 : crc=57 YES".
@@ -1121,7 +1138,13 @@ mod tests {
             w1.sensor(id(A)).unwrap_err(),
         ] {
             assert!(
-                matches!(err, Error::ModuleNotLoaded { module: "w1-gpio", .. }),
+                matches!(
+                    err,
+                    Error::ModuleNotLoaded {
+                        module: "w1-gpio",
+                        ..
+                    }
+                ),
                 "{err:?}"
             );
         }
@@ -1132,18 +1155,26 @@ mod tests {
         let f = Fixture::empty();
         assert!(matches!(
             f.w1().bus_masters(),
-            Err(Error::ModuleNotLoaded { module: "w1-gpio", .. })
+            Err(Error::ModuleNotLoaded {
+                module: "w1-gpio",
+                ..
+            })
         ));
     }
 
     #[test]
     fn discovers_buses_and_sensors() {
         let f = Fixture::empty();
-        f.bus("w1_bus_master2", Some("0\n"), &[B, DS2413])
+        f.bus("w1_bus_master2", Some("0\n"), &[B, OTHER_FAMILY])
             .bus(BUS, Some("0\n"), &[A]);
         let w1 = f.w1();
 
-        let names: Vec<String> = w1.bus_masters().unwrap().iter().map(|b| b.name().to_owned()).collect();
+        let names: Vec<String> = w1
+            .bus_masters()
+            .unwrap()
+            .iter()
+            .map(|b| b.name().to_owned())
+            .collect();
         assert_eq!(names, [BUS, "w1_bus_master2"]);
 
         let ids: Vec<DeviceId> = w1.sensors().unwrap().iter().map(Sensor::id).collect();
@@ -1161,8 +1192,14 @@ mod tests {
     fn unknown_bus_and_sensor() {
         let f = one_bus(Some("0\n"));
         let w1 = f.w1();
-        assert!(matches!(w1.bus("w1_bus_master9"), Err(Error::BusNotFound { .. })));
-        assert!(matches!(w1.bus("28-00000000000a"), Err(Error::BusNotFound { .. })));
+        assert!(matches!(
+            w1.bus("w1_bus_master9"),
+            Err(Error::BusNotFound { .. })
+        ));
+        assert!(matches!(
+            w1.bus("28-00000000000a"),
+            Err(Error::BusNotFound { .. })
+        ));
         let missing = id("28-0000000000ff");
         assert!(matches!(w1.sensor(missing), Err(Error::DeviceNotFound { id }) if id == missing));
     }
@@ -1170,8 +1207,11 @@ mod tests {
     #[test]
     fn non_ds18b20_is_not_a_sensor() {
         let f = Fixture::empty();
-        f.bus(BUS, Some("0\n"), &[DS2413]);
-        assert!(matches!(f.w1().sensor(id(DS2413)), Err(Error::DeviceNotFound { .. })));
+        f.bus(BUS, Some("0\n"), &[OTHER_FAMILY]);
+        assert!(matches!(
+            f.w1().sensor(id(OTHER_FAMILY)),
+            Err(Error::DeviceNotFound { .. })
+        ));
     }
 
     // --- Individual reads ---
@@ -1181,8 +1221,14 @@ mod tests {
         let f = one_bus(Some("0\n"));
         f.write(BUS, B, "w1_slave", NEGATIVE);
         let w1 = f.w1();
-        assert_eq!(w1.sensor(id(A)).unwrap().read().unwrap().millicelsius(), 23_125);
-        assert_eq!(w1.sensor(id(B)).unwrap().read().unwrap().millicelsius(), -10_125);
+        assert_eq!(
+            w1.sensor(id(A)).unwrap().read().unwrap().millicelsius(),
+            23_125
+        );
+        assert_eq!(
+            w1.sensor(id(B)).unwrap().read().unwrap().millicelsius(),
+            -10_125
+        );
     }
 
     #[test]
@@ -1196,7 +1242,13 @@ mod tests {
         let f = one_bus(Some("1\n"));
         let err = f.w1().sensor(id(A)).unwrap().read().unwrap_err();
         assert!(
-            matches!(err, Error::StaleBulkRead { reason: StaleReason::BulkPending, .. }),
+            matches!(
+                err,
+                Error::StaleBulkRead {
+                    reason: StaleReason::BulkPending,
+                    ..
+                }
+            ),
             "{err:?}"
         );
     }
@@ -1221,7 +1273,16 @@ mod tests {
         let f = one_bus(Some("0\n"));
         fs::remove_file(f.sensor_file(BUS, A).join("w1_slave")).unwrap();
         let err = f.w1().sensor(id(A)).unwrap().read().unwrap_err();
-        assert!(matches!(err, Error::ModuleNotLoaded { module: "w1-therm", .. }), "{err:?}");
+        assert!(
+            matches!(
+                err,
+                Error::ModuleNotLoaded {
+                    module: "w1-therm",
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -1238,7 +1299,13 @@ mod tests {
         f.write(BUS, A, "w1_slave", "garbage\n");
         let err = f.w1().sensor(id(A)).unwrap().read().unwrap_err();
         assert!(
-            matches!(err, Error::Parse { path: Some(_), kind: ParseErrorKind::W1Slave(_) }),
+            matches!(
+                err,
+                Error::Parse {
+                    path: Some(_),
+                    kind: ParseErrorKind::W1Slave(_)
+                }
+            ),
             "{err:?}"
         );
     }
@@ -1249,7 +1316,10 @@ mod tests {
             let f = one_bus(Some("0\n"));
             f.write(BUS, A, "w1_slave", content);
             let err = f.w1().sensor(id(A)).unwrap().read().unwrap_err();
-            assert!(matches!(err, Error::CrcMismatch { .. }), "{content:?} gave {err:?}");
+            assert!(
+                matches!(err, Error::CrcMismatch { .. }),
+                "{content:?} gave {err:?}"
+            );
         }
     }
 
@@ -1302,7 +1372,13 @@ mod tests {
         assert!(conversion.read(&id(A)).is_ok());
         let err = conversion.read(&id(A)).unwrap_err();
         assert!(
-            matches!(err, Error::StaleBulkRead { reason: StaleReason::AlreadyRead, .. }),
+            matches!(
+                err,
+                Error::StaleBulkRead {
+                    reason: StaleReason::AlreadyRead,
+                    ..
+                }
+            ),
             "{err:?}"
         );
     }
@@ -1318,7 +1394,13 @@ mod tests {
         let mut conversion = bus.bulk_convert(opts).unwrap();
         let err = conversion.read(&id(A)).unwrap_err();
         assert!(
-            matches!(err, Error::StaleBulkRead { reason: StaleReason::Expired { .. }, .. }),
+            matches!(
+                err,
+                Error::StaleBulkRead {
+                    reason: StaleReason::Expired { .. },
+                    ..
+                }
+            ),
             "{err:?}"
         );
         // Still unread, so Drop discards it.
@@ -1332,7 +1414,13 @@ mod tests {
         let mut conversion = bus.bulk_convert(BulkOptions::default()).unwrap();
         let err = conversion.read(&id("28-0000000000ff")).unwrap_err();
         assert!(
-            matches!(err, Error::StaleBulkRead { reason: StaleReason::NotInConversion, .. }),
+            matches!(
+                err,
+                Error::StaleBulkRead {
+                    reason: StaleReason::NotInConversion,
+                    ..
+                }
+            ),
             "{err:?}"
         );
     }
@@ -1340,7 +1428,8 @@ mod tests {
     #[test]
     fn bulk_validates_like_individual_reads() {
         let f = one_bus(Some("0\n"));
-        f.write(BUS, A, "w1_slave", BAD_CRC).write(BUS, B, "w1_slave", "");
+        f.write(BUS, A, "w1_slave", BAD_CRC)
+            .write(BUS, B, "w1_slave", "");
         let mut bus = bulk_bus(&f);
         let results = bus.bulk_convert(BulkOptions::default()).unwrap().read_all();
         assert!(matches!(results[0].1, Err(Error::CrcMismatch { .. })));
@@ -1355,7 +1444,10 @@ mod tests {
             bus.bulk_convert(BulkOptions::default()),
             Err(Error::BulkReadUnsupported { .. })
         ));
-        assert!(matches!(bus.bulk_status(), Err(Error::BulkReadUnsupported { .. })));
+        assert!(matches!(
+            bus.bulk_status(),
+            Err(Error::BulkReadUnsupported { .. })
+        ));
     }
 
     #[test]
@@ -1371,7 +1463,10 @@ mod tests {
     #[test]
     fn bulk_status_is_parsed() {
         let f = one_bus(Some("1\n"));
-        assert_eq!(bulk_bus(&f).bulk_status().unwrap(), BulkStatus::CompleteUnread);
+        assert_eq!(
+            bulk_bus(&f).bulk_status().unwrap(),
+            BulkStatus::CompleteUnread
+        );
     }
 
     // --- Configuration ---
@@ -1379,7 +1474,8 @@ mod tests {
     #[test]
     fn read_configuration() {
         let f = one_bus(Some("0\n"));
-        f.write(BUS, A, "resolution", "11\n").write(BUS, A, "conv_time", "375\n");
+        f.write(BUS, A, "resolution", "11\n")
+            .write(BUS, A, "conv_time", "375\n");
         let sensor = f.w1().sensor(id(A)).unwrap();
         assert_eq!(sensor.resolution().unwrap(), Resolution::Bits11);
         assert_eq!(sensor.conv_time().unwrap(), Duration::from_millis(375));
@@ -1388,7 +1484,8 @@ mod tests {
     #[test]
     fn write_configuration() {
         let f = one_bus(Some("0\n"));
-        f.write(BUS, A, "resolution", "12\n").write(BUS, A, "conv_time", "750\n");
+        f.write(BUS, A, "resolution", "12\n")
+            .write(BUS, A, "conv_time", "750\n");
         let sensor = f.w1().sensor(id(A)).unwrap();
         let read_back = |name: &str| fs::read_to_string(f.sensor_file(BUS, A).join(name)).unwrap();
 
@@ -1418,7 +1515,10 @@ mod tests {
         let sensor = f.w1().sensor(id(A)).unwrap();
         assert!(matches!(
             sensor.set_resolution(Resolution::Bits9),
-            Err(Error::ModuleNotLoaded { module: "w1-therm", .. })
+            Err(Error::ModuleNotLoaded {
+                module: "w1-therm",
+                ..
+            })
         ));
         assert!(!f.sensor_file(BUS, A).join("resolution").exists());
     }
