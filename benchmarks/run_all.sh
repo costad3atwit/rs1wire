@@ -5,7 +5,9 @@
 # Blocks run in ORDER (default "py rs rs py"), so slow drift (warm-up, room
 # temperature) doesn't line up with one library. Each block runs TRIALS
 # recorded trials (default 15, so 30 per library with the default order).
-# Any other arguments are passed to both harnesses.
+# Any other arguments are passed to both harnesses, so only use flags both
+# accept (--counts, --warmup, --seed, --gap). --methods names differ between
+# them; run a harness directly to pick methods.
 #
 # Usage, ideally inside tmux so a dropped SSH session doesn't kill the run:
 #     benchmarks/run_all.sh
@@ -14,8 +16,8 @@
 # Environment:
 #     TRIALS       recorded trials per block (default 15)
 #     ORDER        blocks to run, "py" and/or "rs" (default "py rs rs py")
-#     VENV         Python venv with w1thermsensor and w1-therm-api (default
-#                  benchmarks/venv)
+#     VENV         Python venv with w1thermsensor[async], aiofiles and
+#                  w1-therm-api (default benchmarks/venv)
 #     NO_PULL=1    skip `git pull --ff-only`
 #     ALLOW_DIRTY=1  run even with uncommitted changes to the crate or harnesses
 #
@@ -63,12 +65,12 @@ set +u
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 set -u
-python -c 'import w1_therm_api, w1thermsensor' 2>/dev/null || die "$(command -v python) can't import
-w1_therm_api and w1thermsensor. Install them into $VENV
-($VENV/bin/pip install w1thermsensor==2.3.0 w1-therm-api), or point VENV at the venv that has them."
+python -c 'import aiofiles, w1_therm_api, w1thermsensor' 2>/dev/null || die "$(command -v python) can't import
+aiofiles, w1_therm_api and w1thermsensor. Install them into $VENV
+($VENV/bin/pip install 'w1thermsensor[async]==2.3.0' w1-therm-api), or point VENV at the venv that has them."
 echo "python: $(command -v python) ($(python --version 2>&1))"
 
-# Only bus masters with DS18B20s matter; the DS2413 bus is never triggered.
+# Only bus masters with DS18B20s matter.
 found_bus=
 for bus in /sys/bus/w1/devices/w1_bus_master*; do
     sensors=$(grep -c '^28-' "$bus/w1_master_slaves" 2>/dev/null || true)
@@ -94,8 +96,18 @@ done
 
 cargo build --release --locked --example timing
 
+# CPU frequency and throttling affect the CPU-time columns (wall time is
+# dominated by conversion sleeps). Logged at start and end, not per row.
+cpu_state() {
+    echo "cpu governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)," \
+        "cur freq: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo unknown) kHz," \
+        "soc temp: $(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo unknown) m°C," \
+        "$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown (no vcgencmd)')"
+}
+
 echo "order: $ORDER, $TRIALS trials per block, extra args: ${*:-none}"
 echo "commit: $(git rev-parse --short=12 HEAD)"
+cpu_state
 for block in $ORDER; do
     echo "=== $block: $(date -u +%H:%M:%SZ) ==="
     if [[ $block == py ]]; then
@@ -105,3 +117,4 @@ for block in $ORDER; do
     fi
 done
 echo "=== done: $(date -u +%H:%M:%SZ) ==="
+cpu_state

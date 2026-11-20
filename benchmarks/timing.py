@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Baseline benchmark: w1thermsensor sequential, w1-therm-api sequential,
-and w1-therm-api bulk reads.
+"""Baseline benchmark: w1thermsensor sequential and async, w1-therm-api
+sequential, and w1-therm-api bulk reads.
 
 Every trial runs each method at each sensor count, reading the first N
 sensors (sorted by ROM ID), and appends one row per (method, N) to
@@ -8,6 +8,13 @@ timings.csv. Must run on the Raspberry Pi.
 
 Methods:
     w1thermsensor-seq   get_temperature() on each sensor in turn (w1_slave)
+    w1thermsensor-async AsyncW1ThermSensor.get_temperature() on every sensor at
+                        once with asyncio.gather (w1_slave). aiofiles runs each
+                        blocking read in a worker thread, so the N conversions
+                        are requested concurrently. The executor gets one
+                        thread per sensor (asyncio's default caps it at
+                        cpu_count + 4, i.e. 8 on a Pi 5), so the pool can't be
+                        what serializes them.
     w1-therm-api-seq    read_temperatures() without a trigger, so the kernel
                         converts each sensor on read (temperature file)
     w1-therm-api-bulk   start_conversion() + wait_for_conversion() (what
@@ -29,6 +36,9 @@ cycles can't hold the bus mutex mid-trial. The original setting is restored
 on exit. Writing w1_master_search needs root; the script uses `sudo -n tee`
 for that one write, so the rest of the script runs unprivileged in the venv.
 
+The async method reuses one event loop and thread pool for the whole run, so
+loop and thread startup land in the warmup trial, not in recorded cells.
+
 The rs1wire methods are timed by timing.rs (see its header), which appends
 to the same timings.csv with the same columns.
 
@@ -40,6 +50,7 @@ Usage:
     python timing.py --seed 1234 --gap 2   # reproducible order, 2 s idle between cells
 """
 import argparse
+import asyncio
 import csv
 import json
 import os
@@ -51,12 +62,13 @@ import socket
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 from w1_therm_api import W1Bus
-from w1thermsensor import Unit, W1ThermSensor
+from w1thermsensor import AsyncW1ThermSensor, Unit, W1ThermSensor
 
 CSV_PATH = Path(__file__).with_name("timings.csv")
 DEFAULT_COUNTS = [1, 2, 5, 10]
@@ -66,6 +78,7 @@ EXPECTED_SENSORS = 10  # search is disabled only when the full bus is present
 # sorted in this order.
 METHODS = {
     "w1thermsensor-seq": ("w1thermsensor", "sequential", "w1_slave"),
+    "w1thermsensor-async": ("w1thermsensor", "async", "w1_slave"),
     "w1-therm-api-seq": ("w1-therm-api", "sequential", "temperature"),
     "w1-therm-api-bulk": ("w1-therm-api", "bulk", "temperature"),
 }
@@ -264,6 +277,22 @@ def run_w1thermsensor(sensors):
     return measure(body)
 
 
+def run_w1thermsensor_async(loop, sensors):
+    """Read every sensor once, concurrently: one get_temperature() coroutine
+    per sensor, gathered. Exceptions are collected, not raised, so one failed
+    sensor doesn't cancel the others."""
+    async def read_all():
+        return await asyncio.gather(
+            *(s.get_temperature(Unit.DEGREES_C) for s in sensors),
+            return_exceptions=True)
+
+    def body():
+        results = loop.run_until_complete(read_all())
+        errors = [type(r).__name__ for r in results if isinstance(r, BaseException)]
+        return len(results) - len(errors), errors, {}
+    return measure(body)
+
+
 class W1ThermApiRunner:
     """Wraps one W1Bus. Counts fallbacks from the temperature file to
     w1_slave parsing so read_path shows which path each row used."""
@@ -360,6 +389,13 @@ def main():
                  "Check wiring and /sys/bus/w1/devices/.")
     paths = [str(s.sensorpath.parent) for s in sensors]
 
+    loop = None
+    if "w1thermsensor-async" in methods:
+        # Constructing AsyncW1ThermSensor raises if aiofiles is missing.
+        async_sensors = [AsyncW1ThermSensor(s.type, s.id) for s in sensors]
+        loop = asyncio.new_event_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=max(counts)))
+
     # Never call bus.rescan(): it writes 1 to w1_master_search.
     bus = W1Bus(unit="C")
     if set(bus.sensors) != set(paths):
@@ -370,6 +406,16 @@ def main():
 
     env = common_env()
     libs = {name: library_meta(name) for name in {METHODS[m][0] for m in methods}}
+    # Per-label metadata. The async method's behavior depends on aiofiles
+    # (it does the threading), so its version goes in library_source.
+    label_libs = {label: libs[METHODS[label][0]] for label in methods}
+    if loop is not None:
+        aiofiles = library_meta("aiofiles")
+        label_libs["w1thermsensor-async"] = {
+            **libs["w1thermsensor"],
+            "library_source": f"{libs['w1thermsensor']['library_source']}"
+                              f"+aiofiles=={aiofiles['library_version']}",
+        }
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     per_count = {
         n: {
@@ -382,7 +428,7 @@ def main():
 
     print(f"run {run_id}: kernel {env['kernel']}, {env['os']} "
           f"({env['os_id']} {env['os_version']})")
-    for meta in libs.values():
+    for meta in {m["library_source"]: m for m in label_libs.values()}.values():
         print(f"  {meta['library']} {meta['library_version']} ({meta['library_source']})")
     print(f"methods: {', '.join(methods)}")
     print(f"seed {seed}, gap {args.gap}s")
@@ -403,6 +449,8 @@ def main():
                   file=sys.stderr)
         if label == "w1thermsensor-seq":
             result = run_w1thermsensor(sensors[:n])
+        elif label == "w1thermsensor-async":
+            result = run_w1thermsensor_async(loop, async_sensors[:n])
         elif label == "w1-therm-api-seq":
             result = w1ta.sequential(paths[:n])
         else:
@@ -444,7 +492,7 @@ def main():
             rows = []
             for run_order, (label, n) in enumerate(cells):
                 result = run_cell(label, n)
-                library, method, read_path = METHODS[label]
+                _, method, read_path = METHODS[label]
                 rows.append((list(METHODS).index(label), n, {
                     "run_id": run_id,
                     "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -457,7 +505,7 @@ def main():
                     "gap_s": args.gap,
                     "w1_master_search": search,
                     **per_count[n],
-                    **libs[library],
+                    **label_libs[label],
                     **env,
                     **result,  # may override read_path
                 }))
@@ -472,6 +520,8 @@ def main():
             print(f"  {label} done")
     finally:
         f.close()
+        if loop is not None:
+            loop.close()  # also shuts down the thread pool
         # Restore even on Ctrl-C or error. Warn rather than exit here so a
         # restore failure can't mask the original exception.
         if search_disabled:
