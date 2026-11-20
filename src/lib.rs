@@ -50,9 +50,14 @@ pub const FAMILY_DS18B20: u8 = 0x28;
 /// Longest piece of offending input kept in a [`ParseErrorKind`].
 const MAX_SNIPPET: usize = 64;
 
-/// Linux `ENODEV`, returned by a `trigger` write when no sensor on the bus
-/// supports bulk reads.
-const ENODEV: i32 = 19;
+/// What to write to `therm_bulk_read` to start a bulk conversion.
+///
+/// The kernel acts only on a write of exactly `sizeof("trigger")` = 8 bytes
+/// (`therm_bulk_read_store` in `w1_therm.c`), i.e. `trigger` plus one more
+/// byte, as `echo trigger >` sends. A bare 7-byte `trigger` is rejected with
+/// `-EINVAL`, but the store still returns the full size, so the write looks
+/// successful and nothing is converted.
+const BULK_TRIGGER: &str = "trigger\n";
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -77,8 +82,8 @@ pub enum Error {
     #[error("bus master {name} not found")]
     BusNotFound { name: String },
 
-    /// The bus master has no `therm_bulk_read` file (older kernel), or the
-    /// kernel refused the trigger because no sensor on the bus supports it.
+    /// The bus master has no `therm_bulk_read` file (older kernel, or no
+    /// `w1_therm` device has attached to this bus).
     #[error("bus master {bus} does not support therm_bulk_read")]
     BulkReadUnsupported { bus: String },
 
@@ -551,6 +556,13 @@ impl BusMaster {
     /// The sensor list is taken from `w1_master_slaves` just before the
     /// trigger. Results left over from someone else's trigger are fine, since
     /// a new trigger replaces them.
+    ///
+    /// The kernel never reports a failed trigger to the writer: its store
+    /// function returns success even when it couldn't start the conversion
+    /// (it logs `unable to trigger a bulk read` to the kernel log instead).
+    /// A failed trigger leaves no results pending, so later reads convert
+    /// afresh rather than returning old values. They are slow, and reads past
+    /// `max_age` are refused as [`StaleReason::Expired`].
     pub fn bulk_convert(&mut self, opts: BulkOptions) -> Result<BulkConversion<'_>> {
         let unread: BTreeSet<DeviceId> = self.sensors()?.iter().map(Sensor::id).collect();
         if self.bulk_status()? == BulkStatus::InProgress {
@@ -559,8 +571,8 @@ impl BusMaster {
             });
         }
         let path = self.path.join("therm_bulk_read");
-        write_attr(&path, "trigger").map_err(|e| {
-            if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(ENODEV) {
+        write_attr(&path, BULK_TRIGGER).map_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
                 Error::BulkReadUnsupported {
                     bus: self.name.clone(),
                 }
@@ -1361,7 +1373,9 @@ mod tests {
             .collect();
         assert_eq!(temps, [(id(A), 23_125), (id(B), -10_125)]);
         let written = fs::read_to_string(f.root().join(BUS).join("therm_bulk_read")).unwrap();
-        assert_eq!(written, "trigger");
+        // Exactly 8 bytes: the kernel ignores any other length.
+        assert_eq!(written, "trigger\n");
+        assert_eq!(written.len(), 8);
     }
 
     #[test]

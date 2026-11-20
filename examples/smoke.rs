@@ -57,6 +57,17 @@ fn run() -> Result<bool, Box<dyn Error>> {
         let start = Instant::now();
         let conversion = bus.bulk_convert(BulkOptions::default())?;
         let trigger = start.elapsed();
+        // The kernel reports success even when it ignores a trigger, so check
+        // that results are actually pending and the write blocked for a
+        // conversion.
+        let pending = conversion.bus().bulk_status()? == BulkStatus::CompleteUnread;
+        let conv_time = first.conv_time()?;
+        all_ok &= check(
+            pending && trigger >= conv_time,
+            &format!(
+                "trigger took effect (pending results, blocked {trigger:?} >= conv_time {conv_time:?})"
+            ),
+        );
         let results = conversion.read_all();
         println!("  bulk: trigger {trigger:?}, total {:?}", start.elapsed());
         for (id, result) in &results {
@@ -77,7 +88,8 @@ fn run() -> Result<bool, Box<dyn Error>> {
         );
 
         // Trigger behind the crate's back, as another process would.
-        fs::write(bus.path().join("therm_bulk_read"), "trigger")?;
+        // 8 bytes, like `echo trigger >`: the kernel ignores a bare "trigger".
+        fs::write(bus.path().join("therm_bulk_read"), "trigger\n")?;
         let refused = matches!(
             first.read(),
             Err(rs1wire::Error::StaleBulkRead {

@@ -43,6 +43,7 @@ Python bindings are a stretch goal, not part of the minimum scope.
 - Per-master: `/sys/bus/w1/devices/w1_bus_masterN/therm_bulk_read`
   - write `trigger` to start a conversion on all devices on that bus
   - read: `-1` conversion in progress, `1` complete but some sensors unread, `0` no bulk operation pending
+  - the write must be exactly 8 bytes (`trigger\n`, as `echo` sends): `therm_bulk_read_store` compares the length to `sizeof("trigger")`. Any other length, or any trigger failure (`-EAGAIN`, `-ENODEV`, bus reset failure), is only logged to dmesg; the store always returns success to the writer
   - the `trigger` write is synchronous: it sleeps for the longest `conv_time` on the bus and marks results ready before returning, so there is no separate wait phase
 - Reading `w1_slave` or `temperature` on a sensor with a pending bulk result returns that result without converting and clears it; with nothing pending, the read runs a fresh conversion
 - Read failures (CRC, bus error, conversion in progress) come back as a 0-byte read, not an errno
