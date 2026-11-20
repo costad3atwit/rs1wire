@@ -38,9 +38,9 @@ The smallest meaningful version is a crate that discovers sensors, reads them in
 
 ## 7. Non-Goals
 
-a. I will not attempt to support all 1-Wire device types. Temperature sensing is a major use of 1-Wire, but the protocol is also used for power supply identification, access control fobs, and storing calibration data. The Linux kernel supports these devices, but including them is not feasible within this project. A DS2413 switch may be used only to measure per-call overhead in benchmarks, not as a supported device. Broader device support may be future work.
+a. I will not attempt to support all 1-Wire device types. Temperature sensing is a major use of 1-Wire, but the protocol is also used for power supply identification, access control fobs, and storing calibration data. The Linux kernel supports these devices, but including them is not feasible within this project. Broader device support may be future work.
 
-b. I will not test or benchmark on hardware other than a Raspberry Pi 5 with DS18B20 sensors (and the DS2413 noted above), since that is the hardware already purchased and there is no additional budget. Benchmarks will therefore cover up to 10 sensors on one bus.
+b. I will not test or benchmark on hardware other than a Raspberry Pi 5 with DS18B20 sensors, since that is the hardware already purchased and there is no additional budget. Benchmarks will therefore cover up to 10 sensors on one bus.
 
 c. I will not implement 1-Wire timing in userspace. The crate relies entirely on the kernel driver, which avoids reintroducing the timing and scheduler-jitter problems that userspace implementations face.
 

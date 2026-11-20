@@ -573,7 +573,6 @@ Every row of the benchmark output records the kernel, OS, library versions and s
 % \begin{itemize}
 % \item Raspberry Pi 5 (1 GB), 10x DS18B20 waterproof probes on one `w1-gpio` bus, externally powered (not parasite) `[VERIFY]`
 % \item Single 4.7 kOhm pull-up `[VERIFY: measured DATA-VCC resistance after removing parallel adapter-board pull-ups]`
-% \item DS2413 on a separate GPIO / overlay instance, isolated (only if Regime 3 runs)
 % \item Resolution 12-bit, kernel default conv\_time `[VERIFY from CSV columns]`
 % \end{itemize}
 % \begin{itemize}
@@ -599,6 +598,8 @@ The same CSV file is written to for all methods to ensure that results are inter
 \hline
 `w1thermsensor-seq` (Py) & `w1\_slave` & `get\_temperature()` on each sensor \\
 \hline
+`w1thermsensor-async` (Py) & `w1\_slave` & `AsyncW1ThermSensor.\allowbreak get\_temperature()` on every sensor at once, via `asyncio.gather()` \\
+\hline
 `w1-therm-api-seq` (Py) & `temperature` & `read\_temperatures()` with no trigger \\
 \hline
 `w1-therm-api-bulk` (Py) & `temperature` & `start\_conversion()`, `wait\_for\_conversion()`, `read\_temperatures()` \\
@@ -615,7 +616,7 @@ The same CSV file is written to for all methods to ensure that results are inter
 The methods are chosen in pairs so that each comparison changes as little as possible. 
 Comparing w1-therm-api's sequential and bulk methods isolates the effect of bulk conversion within a single codebase, while comparing w1thermsensor's sequential reads against either bulk method shows the same effect against the de facto standard library. 
 With the architecture held fixed, w1-therm-api-bulk against rs1wire-bulk isolates the language and library effect, and the three sequential methods compare per-call overhead across libraries when every read pays a full conversion. 
-If the optional asynchronous w1thermsensor method is run, comparing it with bulk reads tests whether concurrency can close the gap; the bus mutex described in Section~\ref{sec:w1} predicts that it cannot on an externally powered bus.
+Comparing w1thermsensor's asynchronous method with its sequential method and with the bulk methods tests whether concurrency alone can close the gap; the bus mutex described in Section~\ref{sec:w1} predicts that it cannot on an externally powered bus.
 
 Each method is measured at fixed sensor counts of $N = 1, 2, 5,$ and $10$, using the first $N$ sensors by ROM ID in both harnesses. 
 Within each trial, every (method, $N$) cell runs in a seeded random order, and the seed and actual run order are recorded so that slow drift is spread across methods rather than aligned with one. 
@@ -629,7 +630,7 @@ With the full bus present, the kernel's periodic bus search is disabled for the 
 % \item w1-therm-api-seq vs. w1-therm-api-bulk: architecture within one codebase
 % \item w1-therm-api-bulk vs. rs1wire-bulk: language/library effect
 % \item w1thermsensor-seq vs. w1-therm-api-seq vs. rs1wire-seq: per-call overhead across libraries
-% \item Async vs. bulk (if run): does concurrency close the gap (expected no, given bus mutex)
+% \item Async vs. seq and bulk: does concurrency close the gap (expected no, given bus mutex)
 % \end{itemize}
 % \begin{itemize}
 % \item Sensor counts N = 1, 2, 5, 10, fixed in advance; first N sensors by ROM ID, same order in both harnesses

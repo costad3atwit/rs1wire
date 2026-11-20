@@ -10,8 +10,8 @@ Python bindings are a stretch goal, not part of the minimum scope.
 
 ## Target environment
 
-- Raspberry Pi 5 running Raspberry Pi OS with the `w1-gpio` and `w1-therm` kernel modules (exact OS/kernel versions: TBD, record them here once fixed), plus at least one other Linux distribution on the same board (TBD)
-- Sensors: up to 10 DS18B20s (thermal) on one bus; DS2413 (non-thermal) on a separate GPIO pin and w1-gpio overlay instance, used only to measure per-call overhead in benchmarks, not a supported device
+- Raspberry Pi 5 running Raspberry Pi OS (Debian 13 "trixie", kernel `6.18.50+rpt-rpi-2712`) with the `w1-gpio` and `w1-therm` kernel modules, plus at least one other Linux distribution on the same board (TBD)
+- Sensors: up to 10 DS18B20s on one bus (GPIO4). No other 1-Wire devices are used.
 - Known risk: a Pi 5/RP1 w1-gpio instability bug may exist on some kernels. Plan is to pin a kernel version where it's resolved.
 
 ## What this crate is (and isn't)
@@ -54,8 +54,8 @@ Python bindings are a stretch goal, not part of the minimum scope.
 The benchmark harness exists to support specific claims, so don't change regimes or baselines without updating `docs/planning.md`.
 
 - Regime 1: single sensor, normal polling (expect conversion time to dominate; don't oversell)
-- Regime 2: many sensors at fixed counts within 1 to 10 (e.g. 1, 2, 5, 10). Required baselines: w1thermsensor 2.3.0 (sequential), w1-therm-api (bulk), this crate native. Optional: w1thermsensor async, w1thermsensor PR #120 branch (record commit hash), this crate via Python if bindings exist.
-- Regime 3 (optional): DS2413, no conversion delay, isolates per-call overhead
+- Regime 2: many sensors at fixed counts within 1 to 10 (e.g. 1, 2, 5, 10). Required baselines: w1thermsensor 2.3.0 (sequential and async via `AsyncW1ThermSensor` + `asyncio.gather`), w1-therm-api (bulk), this crate native. Optional: w1thermsensor PR #120 branch (record commit hash), this crate via Python if bindings exist.
+- There is no Regime 3: the DS2413 per-call overhead benchmark was dropped.
 - Metrics: wall-clock time, CPU usage, error rate
 - w1-therm-api must be called as `convert()` then `read_temperatures()`, with `unit="C"`. Log which read path was used and count None/error results. Time the trigger, wait, and readout phases separately where possible.
 - Record kernel version, OS version, Python version, library versions, sensor count, and resolution with every result

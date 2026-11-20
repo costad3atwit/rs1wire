@@ -1,6 +1,6 @@
 # rs1wire Crate Notes & Planning
 
-David Costa | Created 9/16/2026 | Last updated 9/24/2026
+David Costa | Created 9/16/2026 | Last updated 11/20/2026
 
 ## Project definition
 
@@ -8,7 +8,7 @@ David Costa | Created 9/16/2026 | Last updated 9/24/2026
 
 - **Minimum scope:** discovery, individual reads, stale-safe bulk reads with typed errors, tested on Raspberry Pi OS, benchmarked against w1thermsensor 2.3.0 and w1-therm-api.
 - **Beyond minimum:** sensor configuration (resolution, conv_time), Python bindings (stretch goal), second Linux distribution on the same Pi 5.
-- **Non-goals:** no 1-Wire device types beyond temperature sensors (DS2413 used only to measure per-call overhead in benchmarks); no hardware beyond Raspberry Pi 5, DS18B20s, and the DS2413; no 1-Wire timing in userspace.
+- **Non-goals:** no 1-Wire device types beyond temperature sensors; no hardware beyond Raspberry Pi 5 and DS18B20s; no 1-Wire timing in userspace. (The DS2413 / Regime 3 overhead benchmark was dropped 11/20/2026.)
 
 ## Notes for writing/defense
 
@@ -136,7 +136,8 @@ What **is** new:
 ### Benchmark plan
 
 - Primary baselines (required): w1thermsensor 2.3.0 released (sequential) and w1-therm-api (bulk). Released packages are preferred because they are what users install and reviewers can reproduce them from PyPI.
-- Optional baselines (only if time allows, since benchmark time is the main feasibility risk): w1thermsensor `AsyncW1ThermSensor` + `asyncio.gather`; w1thermsensor PR #120 branch (record the commit hash). If PR #120 isn't run, cite its reported numbers instead.
+- Also run: w1thermsensor `AsyncW1ThermSensor` + `asyncio.gather` (`w1thermsensor-async`, added 11/20/2026 because the paper's bus-mutex claim needs it).
+- Optional baseline (only if time allows, since benchmark time is the main feasibility risk): w1thermsensor PR #120 branch (record the commit hash). If PR #120 isn't run, cite its reported numbers instead.
 - This crate native Rust is required; this crate via Python bindings only if the stretch goal is reached.
 - Regime 1: single sensor, normal polling. Expect the \~750ms conversion wait to dominate; Rust-vs-Python difference likely noise.
 - Regime 2: many sensors. Expect per-sensor overhead to compound and become visible. Baselines:
@@ -147,9 +148,9 @@ What **is** new:
   - w1-therm-api, bulk
   - This crate, bulk (native Rust)
   - This crate, bulk (via Python bindings)
-- Regime 3 (optional): non-thermal 1-Wire device (e.g. DS2413) with no conversion delay, isolating pure per-call overhead.
+- ~~Regime 3 (optional): non-thermal 1-Wire device (e.g. DS2413) with no conversion delay, isolating pure per-call overhead.~~ Dropped 11/20/2026. Per-call overhead is compared through the three sequential methods instead, where every read pays a full conversion.
 - Repeat on at least two Linux distributions on the same Pi 5, Raspberry Pi OS first.
-- Let regimes 2/3 carry the speed claim; don't oversell regime 1.
+- Let regime 2 carry the speed claim; don't oversell regime 1.
 - Comparison logic for Regime 2:
   - w1thermsensor released (sequential) vs. w1thermsensor PR #120 (bulk) → primary **architecture** comparison; isolates bulk vs. sequential within one codebase. w1-therm-api remains a secondary baseline for the same comparison.
   - w1-therm-api bulk vs. this crate bulk → isolates the **language/bindings** effect.
@@ -167,6 +168,8 @@ What **is** new:
 - Use `unit="C"` for w1-therm-api so outputs match the other libraries.
 - Time the trigger, wait, and readout phases separately where the library allows it.
 - Log which read path was used and count None/error results, so fallback-induced outliers can be explained.
+- w1thermsensor async: one `AsyncW1ThermSensor.get_temperature()` per sensor under `asyncio.gather`, on one event loop reused for the whole run. aiofiles does the blocking `open`/`read` in executor threads; the executor is sized to the largest sensor count (asyncio's default, `min(32, cpu_count + 4)`, is 8 on a Pi 5 and would cap N=10). Needs `w1thermsensor[async]`; the aiofiles version is appended to `library_source`.
+- `run_all.sh` logs the CPU governor, current frequency, SoC temperature and `vcgencmd get_throttled` at the start and end of each run (log only, not per CSV row).
 - CPU usage includes w1-therm-api's 5 ms polling loop; note this when comparing CPU numbers, and document how this crate waits.
 - Record kernel version, OS/distribution version, Python version, library versions, sensor count, and resolution with every result.
 - Pi setup for the bulk methods: install `benchmarks/90-rs1wire-bench.rules` (makes `therm_bulk_read` writable by the `gpio` group, which the benchmark user must be in). Disabling bus search needs `sudo -n tee` on `w1_master_search` only; `run_all.sh` prints the narrow sudoers line if it's missing. Verified working on the Pi 10/21/2026.
@@ -233,8 +236,7 @@ What **is** new:
 ### Hardware & Setup
 
 - [ ] Once wired, use the multimeter to measure actual DATA-to-VCC resistance on the DS18B20 bus (up to 10 sensors). If it's far below 4.7kΩ from parallel adapter-board resistors, disable all but one onboard pull-up resistor (route the other sensors' power/data via alligator clips, bypassing their onboard resistor path)
-- [ ] Wire the DS2413 on its own separate GPIO pin/w1-gpio overlay instance, with its own single 4.7kΩ resistor, kept isolated from the DS18B20 bus
-- [ ] Skip installing headers on the DS2413 board; use the alligator clip leads directly on its pads instead
+- ~~Wire the DS2413 on its own separate GPIO pin/w1-gpio overlay instance~~ (dropped 11/20/2026)
 
 ### Design
 
@@ -243,30 +245,30 @@ What **is** new:
 - [x] Decide error taxonomy: kernel module not loaded, device not found, CRC mismatch, conversion in progress, stale bulk-read access, parse failure (never panic on malformed input), 85 °C power-on reset value
   - Done 10/21: `rs1wire::Error` in src/lib.rs, plus `BusNotFound`, `BulkReadUnsupported` and `Io`.
 - [x] Decide CRC approach: recompute CRC-8 from the 9 raw scratchpad bytes, or only check the kernel's `crc=YES/NO`. Describe the feature accurately either way
-  - Recompute and cross-check against `crc=` on `w1_slave` reads. The bulk path (`temperature` file) relies on the kernel's check.
+  - Recompute and cross-check against `crc=` on `w1_slave` reads. Bulk results are also read through `w1_slave`, so every path is recomputed (the earlier plan to read bulk results from `temperature` was dropped 10/21).
 - [x] Decide how to handle 85000 (85 °C): treating it as the power-on value discards genuine readings; choose deliberately and document it
   - Error by default (`PowerOnResetPolicy::Reject`), opt-in `Accept`.
 - [x] Design stale-read tests alongside the bulk-read API (expired conversion, double read from one conversion)
   - Fixture tests in src/lib.rs plus a `compile_fail` doctest for a double `read_all`. Kernel-side consumption is checked on hardware with `examples/smoke.rs`.
-- [ ] Harness: w1-therm-api's `start_conversion()` already includes the full conversion wait, since the kernel's `trigger` write is synchronous, so its "wait" phase is ~0. Relabel the phases or note it with the results
+- [x] Harness: w1-therm-api's `start_conversion()` already includes the full conversion wait, since the kernel's `trigger` write is synchronous, so its "wait" phase is ~0. Relabel the phases or note it with the results
+  - Noted in the paper's metrics list (Methodology, Experimental design).
 - [ ] Decide PyO3 boundary and where `py.allow_threads` is required
 
 ### Benchmarking methodology *(define before writing the crate)*
 
 - [ ] Regime 1: single sensor, normal polling
-- [ ] Regime 2: many sensors; required baselines = w1thermsensor 2.3.0 sequential, w1-therm-api bulk, this crate (Rust); optional baselines = w1thermsensor async/concurrent, w1thermsensor PR #120 branch, this crate (Python bindings, if built)
-- [ ] Regime 3 (optional): non-thermal device, no conversion delay
+- [ ] Regime 2: many sensors; required baselines = w1thermsensor 2.3.0 sequential and async, w1-therm-api bulk, this crate (Rust); optional baselines = w1thermsensor PR #120 branch, this crate (Python bindings, if built)
 - [ ] Metrics: wall-clock time, CPU usage, reliability/error-rate count
 - [ ] Fix sensor count levels in advance within 1 to 10 (e.g. 1, 2, 5, 10) so compounding is visible on a chart
 - [ ] Repeat on a second Linux distribution on the same Pi 5
 
 ### Development milestones
 
-- [ ] Rust crate: discovery + single-sensor read with CRC validation
-- [ ] Bulk-trigger (`therm_bulk_read`) coordination with stale-read protection
-- [ ] conv_time/resolution configuration support (beyond minimum scope)
+- [x] Rust crate: discovery + single-sensor read with CRC validation
+- [x] Bulk-trigger (`therm_bulk_read`) coordination with stale-read protection
+- [x] conv_time/resolution configuration support (beyond minimum scope)
 - [ ] PyO3 bindings + maturin packaging, GIL release verified (stretch goal)
-- [ ] Benchmark harness vs. w1thermsensor 2.3.0 and w1-therm-api across all regimes (optional baselines if time allows)
+- [x] Benchmark harness vs. w1thermsensor 2.3.0 (sequential and async) and w1-therm-api (`benchmarks/timing.py`, `benchmarks/timing.rs`, `benchmarks/run_all.sh`)
 - [ ] Write up results, explicit about where speed matters and where it doesn't
 
 ### Writeup / documentation
@@ -288,3 +290,4 @@ What **is** new:
 - **10/21/2026 (harness):** Added `os_id` / `os_version` (os-release ID / VERSION_ID) and `rustc` columns to the shared CSV schema for the distribution comparison. Added the rs1wire harness `benchmarks/timing.rs` (methods `rs1wire-seq`, `rs1wire-bulk`), same columns, same drain and search-disable rules as timing.py.
 - **10/21/2026 (Pi setup):** Added `benchmarks/run_all.sh` (py/rs/rs/py blocks, pre-run checks) and the udev rule `benchmarks/90-rs1wire-bench.rules` for `therm_bulk_read` write access. `therm_bulk_read` is 0644 root by default, so bulk methods fail unprivileged without it.
 - **11/1/2026:** Split the bulk-read state diagram (paper Fig. bulk_states) into panels: (a) per-sensor states within one `BulkConversion` handle and (b) bus status from `therm_bulk_read`. Panel (b)'s initial transition is now labeled "w1 driver loaded". Added a writeup to-do to explain it.
+- **11/20/2026:** Pre-results review. Added `w1thermsensor-async` to timing.py (needed to verify the bus-mutex claim; executor sized to max N). Dropped the DS2413 and Regime 3 entirely. `run_all.sh` now requires aiofiles and logs CPU governor/frequency/temperature/throttling. Corrected the stale CRC note (bulk reads use `w1_slave`), ticked finished milestones, recorded the Raspberry Pi OS environment in CLAUDE.md, ran `cargo fmt`, ignored `__pycache__`.
